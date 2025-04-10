@@ -1,0 +1,37 @@
+Team,HomeAgainstPotA,AwayAgainstPotA,HomeAgainstPotB,AwayAgainstPotB,HomeAgainstPotC,AwayAgainstPotC,HomeAgainstPotD,AwayAgainstPotD
+Real,Dortmund,Barcelona,Shakhtar,Milan,Celtic,YB,Brest,Sturm Graz
+ManCity,Barcelona,Inter,Benfica,Arsenal,Salzburg,Lille,Girona,Bologna
+Bayern,Liverpool,Dortmund,Arsenal,Juventus,Lille,Dinamo,Aston Villa,Girona
+PSG,Inter,Leipzig,Brugge,Shakhtar,YB,Crvena,Sturm Graz,Stuttgart
+Liverpool,PSG,ManCity,Leverkusen,Atlético,Feyenoord,Sporting,Bratislava,Monaco
+Inter,Leipzig,Liverpool,Milan,Brugge,Crvena,Celtic,Stuttgart,Brest
+Dortmund,Real,Bayern,Atlético,Atalanta,Sporting,Eindhoven,Monaco,Sparta
+Leipzig,Bayern,Real,Juventus,Benfica,Dinamo,Salzburg,Bologna,Aston Villa
+Barcelona,ManCity,PSG,Atalanta,Leverkusen,Eindhoven,Feyenoord,Sparta,Bratislava
+Leverkusen,Barcelona,Dortmund,Shakhtar,Milan,YB,Crvena,Sturm Graz,Stuttgart
+Atlético,Real,ManCity,Atalanta,Leverkusen,Sporting,Eindhoven,Sparta,Monaco
+Atalanta,Bayern,Real,Atlético,Atalanta,Feyenoord,Sporting,Monaco,Bratislava
+Juventus,Inter,PSG,Benfica,Arsenal,Salzburg,Dinamo,Bologna,Aston Villa
+Benfica,PSG,Liverpool,Arsenal,Juventus,Lille,Salzburg,Girona,Bologna
+Arsenal,ManCity,Bayern,Leverkusen,Atlético,Eindhoven,Feyenoord,Bratislava,Sparta
+Brugge,Liverpool,Inter,Juventus,Benfica,Dinamo,Lille,Aston Villa,Girona
+Shakhtar,Leipzig,Barcelona,Brugge,Shakhtar,Crvena,Celtic,Stuttgart,Brest
+Milan,Dortmund,Leipzig,Milan,Brugge,Celtic,YB,Brest,Sturm Graz
+Feyenoord,ManCity,Bayern,Atlético,Atalanta,Feyenoord,Sporting,Sparta,Bratislava
+Sporting,Bayern,Real,Atalanta,Leverkusen,Sporting,Eindhoven,Bratislava,Monaco
+Eindhoven,Inter,PSG,Juventus,Arsenal,Lille,Salzburg,Bologna,Aston Villa
+Dinamo,Liverpool,Inter,Arsenal,Benfica,Salzburg,Dinamo,Aston Villa,Girona
+Salzburg,PSG,Liverpool,Benfica,Juventus,Dinamo,Lille,Girona,Bologna
+Lille,Real,ManCity,Leverkusen,Atlético,Eindhoven,Feyenoord,Monaco,Sparta
+Crvena,Dortmund,Barcelona,Brugge,Milan,Celtic,YB,Sturm Graz,Stuttgart
+YB,Leipzig,Dortmund,Shakhtar,Brugge,Crvena,Celtic,Brest,Sturm Graz
+Celtic,Barcelona,Leipzig,Milan,Shakhtar,YB,Crvena,Stuttgart,Brest
+Bratislava,Liverpool,PSG,Benfica,Juventus,Salzburg,Dinamo,Aston Villa,Girona
+Monaco,Bayern,Real,Leverkusen,Atalanta,Eindhoven,Feyenoord,Monaco,Sparta
+Sparta,Leipzig,Dortmund,Shakhtar,Brugge,YB,Crvena,Brest,Stuttgart
+Aston Villa,Dortmund,Barcelona,Brugge,Milan,Crvena,Celtic,Sturm Graz,Brest
+Bologna,ManCity,Bayern,Atalanta,Atlético,Sporting,Eindhoven,Bratislava,Monaco
+Girona,Inter,Liverpool,Arsenal,Benfica,Lille,Salzburg,Bologna,Aston Villa
+Stuttgart,Barcelona,Leipzig,Milan,Shakhtar,Celtic,YB,Stuttgart,Sturm Graz
+Sturm Graz,Real,ManCity,Atlético,Leverkusen,Feyenoord,Sporting,Sparta,Bratislava
+Brest,PSG,Inter,Juventus,Arsenal,Dinamo,Lille,Girona,Bologna
