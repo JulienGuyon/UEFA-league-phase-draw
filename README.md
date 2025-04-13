@@ -1,53 +1,137 @@
-# Champions League Draw Scheduler - README
+# ⚽ UEFA Champions League Draw Simulation
 
-## Project Overview
+<p align="center">
+  <img src="https://socialify.git.ci/JulienGuyon/UEFA-league-phase-draw/image?name=1&owner=1&stargazers=1&theme=Light" alt="project-image">
+</p>
 
-This repository contains the code r
+## 📖 Project Overview
 
-## Project Structure
+This repository contains advanced tools to simulate the UEFA Champions League League Phase Draw using two distinct methods:
 
-The repository contains the implementation of both scheduling approaches:
+- **Schedule-First Approach**: Create an optimized 8-matchday schedule with placeholders, then assign teams ensuring all constraints are satisfied.
+- **Matches-First Approach**: Sequentially draw matchups for each team, ensuring compliance with constraints before scheduling match days.
 
-- **Method 1: Schedule-First Approach**
+Implemented in **Julia** with **JuMP** and the **Integer Linear Programming solver**.
 
-  - A pre-defined 8-day schedule is created with placeholders for teams. Teams are then assigned to these placeholders while adhering to the constraints, including playing against different pots and maintaining home-away alternation.
-  - This method involves solving a linear programming problem using the Gurobi solver to optimize the schedule.
+<p align="center">
+  <img src="https://img.shields.io/badge/Website-React_TypeScript_Vite-blue.svg" alt="Website Badge">
+  <img src="https://img.shields.io/badge/Simulation-Julia_MILP_JuMP-green.svg" alt="Simulation Badge">
+</p>
 
-- **Method 2: Matches-First Approach**
-  - Matches are drawn sequentially for each team, ensuring that the drawn matches adhere to the constraints before scheduling the match days.
-  - The Gurobi solver is used to optimize the match selection, ensuring feasibility and respecting the competition's constraints.
-  - This method offers greater flexibility for real-world scheduling scenarios, such as stadium availability or weather conditions.
+## 🌟 Key Features
 
-## Key Features
+- **Simulate Champions League Draws** with realistic constraints.
+- **Calculate Average Opponent Strength** and build a Luck Index
+- **Determine Matchup Probabilities** between any two teams.
+- **Compare Scheduling Methods** to evaluate different strength distribution
+- **Build a Counter-example** i.e a draw that satisfies all constraints but cannot be scheduled oin the eigth allocated days.
 
-1. **Constraints Management**:
-   - Each team plays exactly 8 matches: 2 against teams from each pot.
-   - No team can play against teams from the same country more than twice.
-   - Matches are evenly distributed across the eight match days.
-   - Teams experience a balance of home and away games, with minimal "breaks" (consecutive home or away games).
-2. **Optimization with Gurobi**:
+## ⚙️ Scheduling Methods
 
-   - The project leverages the Gurobi solver to manage complex scheduling constraints and optimize the draw process.
-   - The schedule-first method focuses on balancing the calendar, while the matches-first method allows for more flexible real-world adjustments.
+### 📅 Schedule-First Method
 
-3. **Graph Theory Application**:
-   - Graph theory is used to verify the feasibility of match scheduling, ensuring that the draw avoids creating deadlocks and that matches can be scheduled within eight days.
+- Pre-build an 8-day schedule template with team placeholders.
+- Assign teams to placeholders respecting pot, home-away alternation, and country constraints.
+- Optimized via MILP with Gurobi, ensuring minimal home/away breaks, even distribution of important match, equal repartition of team's strenght over the match days.
 
-## Files and Directories
+### 🔄 Matches-First Method
 
-- TO DO
+- Sequentially draw matchups ensuring feasibility before assigning match days.
+- Suitable for scenarios needing high flexibility, such as stadium availability or weather considerations.
 
-## Usage
+## 🔍 Constraint Management
 
-## Future Work
+- Each team plays exactly 8 matches (one home and one away against teams from each pot).
+- Maximum of two matches against teams from the same association.
+- Two teams from the same association cannot meet.
+- Matches should be scheduled across eight match days.
 
-## Authors
+## 📂 Project Structure
 
-- Adle Ben Salem
-- Thomas Buchholtzer
-- Julien Guyon
-- Mathieu Tanré
+```bash
+├── RandomDraw/
+│   ├── conter-example_with_teams_oriented.html   // html page to display conter-example graph
+│   ├── fill_conter_example.jl                    // code to attribute teams to placeholders
+│   ├── Manifest.toml
+│   ├── Project.toml
+│   ├── Build_Schedule_First/
+│   │   ├── draw_build_schedule_first.jl                //perform a draw to fill the 'optimal' template
+│   │   └── template_optimal_break.jl                   // build an optimal template
+│   │
+│   └── Draw_Matchups_First/
+│       └── draw_matchups_first.jl
+│
+├── RandomDrawSite/
+│   ├── // src code for the presentation website
+│
+├── utils/
+├── .gitignore
+├── LICENSE.md
+└── README.md
 
----
 
-This project demonstrates advanced scheduling techniques using linear programming and graph theory to handle complex, real-world constraints for one of the most prestigious football tournaments in Europe.
+```
+
+## 🚀 Installation Steps
+
+1. First install Julia [here](https://julialang.org/downloads/)
+
+2. Clone this repository:
+
+```bash
+git clone https://github.com/JulienGuyon/UEFA-league-phase-draw.git
+cd UEFA-league-phase-draw
+```
+
+2. Install dependencies that are in the Project.toml
+
+```bash
+cd RandomDraw
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+3. Install solvers libraries according to your use case:
+
+- We recommand you to use[Gurobi](https://www.gurobi.com/academia/academic-program-and-licenses/?gad_source=1&gbraid=0AAAAA-OoJU5SOyC2JNFoxuC1C0zIYs26i&gclid=Cj0KCQjwnui_BhDlARIsAEo9GutfSKCbMJqlXuaF-Z8kxed7jLt7P8BJa5jAaDCsOLAdRwWVI7UFtaIaAq_0EALw_wcB). You will need a license to use this solver.
+- Otherwise you can use [SCIP](https://github.com/scipopt/SCIP.jl) solver that is open-sourced.
+
+## 🌐 Web Application
+
+The web application built with **React**, **TypeScript**, and **Vite** allows interactive exploration of simulation results and visual analytics.
+
+1. We use `npm` as a package manager. Please install it [here](https://docs.npmjs.com/cli/v8/commands/npm-install)
+
+2. Run locally:
+
+```bash
+cd RandomDrawSite
+npm install
+npm run dev
+```
+
+3. The application runs [here](http://localhost:5173) in localhost port 5173.
+
+## 📖 Article
+
+Find the results of our simulations and way more results about uefa league phase graph properties by looking at our paper !
+
+## 🤝 Contribution Guidelines
+
+We welcome contributions! Please follow these steps:
+
+1. Fork the repository.
+2. Create your feature branch (`git checkout -b feature/new-feature`).
+3. Commit your changes (`git commit -am 'Add some feature'`).
+4. Push to the branch (`git push origin feature/new-feature`).
+5. Open a Pull Request.
+
+## 👥 Authors
+
+- **Adle Ben Salem**
+- **Thomas Buchholtzer**
+- **Julien Guyon**
+- **Mathieu Tanré**
+
+## 📜 License
+
+This project is licensed under the **Apache License 2.0**.
