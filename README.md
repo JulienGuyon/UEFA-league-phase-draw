@@ -64,7 +64,7 @@ Implemented in **Julia** with **JuMP** and the **Integer Linear Programming solv
 ├── RandomDrawSite/
 │   ├── // src code for the presentation website
 │
-├── utils/
+├── docs/                                        // built website in production
 ├── .gitignore
 ├── LICENSE.md
 └── README.md
