@@ -42,5 +42,6 @@ jobs:
       - name: Commit built files to docs folder
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           commit_message: "Update docs folder with new build"
           file_pattern: "docs/**"
