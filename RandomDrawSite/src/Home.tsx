@@ -1,13 +1,13 @@
-import { ChampionsLeagueSimulator } from "@/components/champions-league-simulator";
-import { Button } from "@/components/ui/button";
+import { ChampionsLeagueSimulator } from "./components/champions-league-simulator";
+import { Button } from "./components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+} from "./components/ui/card";
+import { Badge } from "./components/ui/badge";
 import {
   Github,
   ExternalLink,
