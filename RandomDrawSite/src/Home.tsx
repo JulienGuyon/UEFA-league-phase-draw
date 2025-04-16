@@ -291,7 +291,9 @@ export default function Home() {
                 <div className="flex justify-center mb-6">
                   <div className="relative group">
                     <img
-                      src="/images/draw-procedure.png"
+                      src={`${
+                        import.meta.env.BASE_URL
+                      }images/draw-procedure.png`}
                       alt="Template schedule showing the assignment of teams to match days"
                       className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
                     />
@@ -340,7 +342,9 @@ export default function Home() {
                   <div className="flex justify-center mb-6">
                     <div className="relative group">
                       <img
-                        src="/images/Contre-exemple-graph-legended.png"
+                        src={`${
+                          import.meta.env.BASE_URL
+                        }images/Contre-exemple-graph-legended.png`}
                         alt="Counter-example graph showing Leipzig as a cut-vertex"
                         className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
                       />
@@ -389,7 +393,9 @@ export default function Home() {
                   <div className="flex justify-center">
                     <div className="relative group">
                       <img
-                        src="/images/template-schedule.png"
+                        src={`${
+                          import.meta.env.BASE_URL
+                        }images/template-schedule.png`}
                         alt="Template schedule showing the assignment of teams to match days"
                         className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
                       />
@@ -436,12 +442,14 @@ export default function Home() {
                   <div className="flex justify-center">
                     <div className="relative group">
                       <img
-                        src="/images/luck-index.png"
+                        src={`${import.meta.env.BASE_URL}images/luck-index.png`}
                         alt="Graph showing luck index distribution across different draw methods"
                         className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
                       />
                       <img
-                        src="/images/dmf_ucl_uefa_scatterplot-1.png"
+                        src={`${
+                          import.meta.env.BASE_URL
+                        }images/dmf_ucl_uefa_scatterplot-1.png`}
                         alt="Graph showing luck index distribution across different draw methods"
                         className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
                       />
