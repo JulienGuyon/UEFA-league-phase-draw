@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# Add this permissions block to grant write access
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,8 +19,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
-          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+          persist-credentials: true # Changed to true so we keep credentials
+          fetch-depth: 0
 
       # Set up Node.js (adjust node-version as needed)
       - name: Setup Node.js
@@ -30,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: cd RandomDrawSite && npm install
 
-      # Build the project using the Vite build script (make sure package.json has the proper script)
+      # Build the project using the Vite build script
       - name: Build project
         run: cd RandomDrawSite && npm run build
 
@@ -40,8 +44,21 @@ jobs:
           rm -rf docs/*
           cp -r RandomDrawSite/dist/* docs/
 
-      # (Optional) Commit the changes to the docs folder back to the repository.
-      - name: Commit & Push changes
-        uses: actions-js/push@master
+      # Configure Git identity
+      - name: Configure Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      # Commit changes
+      - name: Commit changes
+        run: |
+          git add docs/
+          git commit -m "Update docs with latest build" || echo "No changes to commit"
+
+      # Push changes
+      - name: Push changes
+        uses: ad-m/github-push-action@master
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
