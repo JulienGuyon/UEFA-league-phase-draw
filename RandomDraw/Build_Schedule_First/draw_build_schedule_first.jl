@@ -8,11 +8,11 @@ using JuMP
 if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 	using Gurobi
 end
-using SCIP, MathOptInterface, Statistics, Random, Base.Threads, Logging
+using SCIP, ConstraintSolver, MathOptInterface, Statistics, Random, Base.Threads, Logging
 
 ####################################### DRAW PARAMETERS #######################################
-const SOLVER::String = "GUROBI" # Alternative: "Gurobi", "SCIP"
-const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
+const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP", "ConstraintSolver"
+const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE", "CHAMPIONS_LEAGUE"
 const NB_DRAWS::Int = 1
 const IS_RANDOM::Bool = true
 ####################################### GLOBAL VARIABLES #######################################
@@ -32,6 +32,12 @@ if SOLVER == "Gurobi"
 elseif SOLVER == "SCIP"
 	# Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
 	const env = SCIP.Optimizer
+
+elseif SOLVER == "ConstraintSolver"
+	const CS = ConstraintSolver
+	const env = CS.Optimizer
+	# Set the verbosity level to 0 to suppress output
+	# set_attribute(env, "display/verblevel", 0)
 else
 	error("Unknown solver. Please choose between 'Gurobi' and 'SCIP'.")
 end
@@ -190,7 +196,7 @@ elseif LEAGUE == "EUROPA_LEAGUE"
 		TeamData("Besiktas", "Turkey", 1484, 12),                   #33
 		TeamData("FCSB", "Romania", 1434, 10.5),                    #34
 		TeamData("RFS", "Latvia", 1225, 8),                         #35
-		TeamData("Elfsborg", "Sweden", 1403, 4.3),                   #36
+		TeamData("Elfsborg", "Sweden", 1403, 4.3),                  #36
 	]
 	const team_nationalities = # team_nationalities[i] : nationality of team i
 		[1, 2, 3, 4, 5, 6, 1, 2, 14, 7, 4, 3, 8, 9, 8, 10, 11, 12, 13, 10, 14, 15, 16, 17, 18, 19, 20, 7, 6, 9, 16, 4, 10, 21, 22, 20]
@@ -249,9 +255,9 @@ function is_solvable(
 )::Bool
 	if SOLVER == "Gurobi"
 		model = direct_model(Gurobi.Optimizer(env))
-	elseif SOLVER == "SCIP" || SOLVER == "CONSTRAINT_SOLVER"
+	elseif SOLVER == "SCIP" || SOLVER == "ConstraintSolver"
 		model = Model(env)
-		set_attribute(model, "display/verblevel", 0)
+		# set_attribute(model, "display/verblevel", 0)
 
 	else
 		error("Invalid SOLVER")
@@ -351,9 +357,6 @@ function admissible_teams(
 	placeholder_pot = div(selected_placeholder - 1, nb_teams_per_pot) + 1
 	pot_start = (placeholder_pot - 1) * nb_teams_per_pot + 1
 	pot_end = placeholder_pot * nb_teams_per_pot
-
-	# Pre-allocate for the maximum possible size
-	sizehint!(possible_teams, nb_teams_per_pot)
 
 	for team in pot_start:pot_end
 		if !(team in already_filled)

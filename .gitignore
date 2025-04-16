@@ -298,3 +298,5 @@ out
 
 node_modules/
 dist/
+
+test_template.ipynb
