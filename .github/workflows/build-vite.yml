@@ -13,7 +13,10 @@ jobs:
     steps:
       # Check out the repository code
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@
+        with:
+          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+          fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
       # Set up Node.js (adjust node-version as needed)
       - name: Setup Node.js
@@ -38,10 +41,7 @@ jobs:
           cp -r RandomDrawSite/dist/* docs/
 
       # (Optional) Commit the changes to the docs folder back to the repository.
-      # You can remove this step if you prefer to deploy these files elsewhere.
-      - name: Commit built files to docs folder
-        uses: stefanzweifel/git-auto-commit-action@v4
+      - name: Commit & Push changes
+        uses: actions-js/push@master
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit_message: "Update docs folder with new build"
-          file_pattern: "docs/**"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
