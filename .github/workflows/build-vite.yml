@@ -1,0 +1,45 @@
+name: Build React Site using Vite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Set up Node.js (adjust node-version as needed)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
+          cache: 'npm'
+
+      # Install dependencies
+      - name: Install dependencies
+        run: cd RandomDrawSite && npm install
+
+      # Build the project using the Vite build script (make sure package.json has the proper script)
+      - name: Build project
+        run: cd RandomDrawSite && npm run build
+
+      # Clean the /docs folder and copy the build output from /dist to /docs
+      - name: Update /docs folder with build output
+        run: |
+          rm -rf docs/*
+          cp -r RandomDrawSite/dist/* docs/
+
+      # (Optional) Commit the changes to the docs folder back to the repository.
+      # You can remove this step if you prefer to deploy these files elsewhere.
+      - name: Commit built files to docs folder
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Update docs folder with new build"
+          file_pattern: "docs/**"
