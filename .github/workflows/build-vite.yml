@@ -2,9 +2,9 @@ name: Build React Site using Vite
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   build:
@@ -19,8 +19,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '16'
-          cache: 'npm'
+          node-version: "16"
+          cache: "npm"
+          cache-dependency-path: RandomDrawSite/package-lock.json
 
       # Install dependencies
       - name: Install dependencies
