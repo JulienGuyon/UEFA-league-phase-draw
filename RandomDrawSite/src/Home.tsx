@@ -589,7 +589,7 @@ export default function Home() {
                   </span>
                 </div>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                  © 2024 All rights reserved
+                  © 2025 All rights reserved
                 </p>
               </div>
 
