@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -42,7 +42,6 @@ export function ChampionsLeagueSimulator() {
   const [remainingOpponentPots, setRemainingOpponentPots] = useState<number[]>(
     []
   );
-  const [currentTeamName, setCurrentTeam] = useState("");
   const [currentStep, setCurrentStep] = useState<
     "selectTeam" | "showOpponents" | "drawOpponents"
   >("selectTeam");
@@ -63,6 +62,12 @@ export function ChampionsLeagueSimulator() {
     home: string;
     away: string;
   }>({ home: "", away: "" });
+
+  // currentTeamName from the currentTeamIndex
+  const currentTeamName = useMemo(
+    () => draw.getSelectedTeamName(currentSelectedTeamIndexInDraw),
+    [currentSelectedTeamIndexInDraw]
+  );
 
   // Initialize draw results structure
   useEffect(() => {
@@ -126,8 +131,9 @@ export function ChampionsLeagueSimulator() {
   const handleStartDraw = () => {
     // Reset the draw
     setCurrentPot(1);
-    setCurrentSelectedTeamIndexInDraw(-1);
-    setCurrentTeam("");
+    setCurrentSelectedTeamIndexInDraw(0);
+    setStartDraw(true);
+    setCurrentOpponentPotIndex(1);
     setCurrentStep("selectTeam");
     setDrawComplete(false);
     setPotProgress({ 1: 0, 2: 0, 3: 0, 4: 0 });
@@ -156,33 +162,26 @@ export function ChampionsLeagueSimulator() {
 
   const handleSelectTeam = () => {
     // We do not increment the index if we are starting the draw
-    if (!startDraw) {
-      // If we selected all the teams from current pot we process the next one
-      setCurrentSelectedTeamIndexInDraw((prev) => prev + 1);
-      if (
-        currentSelectedTeamIndexInDraw % 9 === 0 &&
-        currentSelectedTeamIndexInDraw > 0
-      ) {
-        // Move to next pot if all teams in current pot are processed
-        if (currentSelectedPotIndex < 4) {
-          setCurrentPot((prev) => prev + 1);
-          setActiveTab(`pot${currentSelectedPotIndex + 1}`);
-          setCurrentStep("selectTeam");
-        } else {
-          setDrawComplete(true);
-        }
-        return;
+    console.log("Previous team index:", currentSelectedTeamIndexInDraw);
+    const nextIndex = startDraw ? 0 : currentSelectedTeamIndexInDraw + 1;
+    setCurrentSelectedTeamIndexInDraw(nextIndex);
+    console.log("New team index:", currentSelectedTeamIndexInDraw);
+
+    // advance pot if needed
+    if (nextIndex > 0 && nextIndex % 9 === 0) {
+      if (currentSelectedPotIndex < 4) {
+        setCurrentPot((p) => p + 1);
+        setActiveTab(`pot${currentSelectedPotIndex + 1}`);
+      } else {
+        setDrawComplete(true);
       }
     }
 
-    const selectedTeamName = draw.getSelectedTeamName(
-      currentSelectedTeamIndexInDraw
-    );
-    setCurrentTeam(selectedTeamName);
-    setRemainingOpponentPots([]); // Reset to trigger the useEffect
+    // reset the opponent‐finding flow
+    setRemainingOpponentPots([]);
     setProcessedOpponentPots([]);
     setCurrentStep("showOpponents");
-    setStartDraw(false); // Set to false after the first draw
+    setStartDraw(false);
   };
 
   const handleShowOpponents = () => {
@@ -264,7 +263,6 @@ export function ChampionsLeagueSimulator() {
     } else {
       // All opponent pots for this team have been processed, move to next team
       setTimeout(() => {
-        setCurrentTeam("");
         setCurrentStep("selectTeam");
       }, 1000);
     }
