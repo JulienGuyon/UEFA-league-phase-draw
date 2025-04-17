@@ -181,6 +181,7 @@ export function ChampionsLeagueSimulator() {
     setRemainingOpponentPots([]);
     setProcessedOpponentPots([]);
     setCurrentStep("showOpponents");
+    console.log("Current step:", currentStep);
     setStartDraw(false);
   };
 
@@ -406,8 +407,7 @@ export function ChampionsLeagueSimulator() {
                     </>
                   ) : (
                     <>
-                      <Clock className="mr-2 h-4 w-4 animate-spin" />{" "}
-                      Processing...
+                      <Clock className="mr-2 h-4 w-4" /> Team Draw Processing{" "}
                     </>
                   )}
                 </Button>
@@ -493,30 +493,32 @@ export function ChampionsLeagueSimulator() {
                     </div>
                   )}
 
-                  {selectedOpponents.home && selectedOpponents.away && (
-                    <div className="mt-4 space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <Trophy className="h-4 w-4 text-[#cfa749]" />
-                        <p className="font-medium">Selected Opponents:</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="p-2 bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 flex items-center">
-                          <Home className="h-3.5 w-3.5 mr-2 text-[#0e1e5b] dark:text-[#3b82f6]" />
-                          <span className="font-medium mr-1">Home:</span>{" "}
-                          <span className="truncate">
-                            {selectedOpponents.home}
-                          </span>
+                  {currentStep == "showOpponents" &&
+                    selectedOpponents.home &&
+                    selectedOpponents.away && (
+                      <div className="mt-4 space-y-3">
+                        <div className="flex items-center space-x-2">
+                          <Trophy className="h-4 w-4 text-[#cfa749]" />
+                          <p className="font-medium">Selected Opponents:</p>
                         </div>
-                        <div className="p-2 bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 flex items-center">
-                          <ExternalLink className="h-3.5 w-3.5 mr-2 text-[#0e1e5b] dark:text-[#3b82f6]" />
-                          <span className="font-medium mr-1">Away:</span>{" "}
-                          <span className="truncate">
-                            {selectedOpponents.away}
-                          </span>
+                        <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="p-2 bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 flex items-center">
+                            <Home className="h-3.5 w-3.5 mr-2 text-[#0e1e5b] dark:text-[#3b82f6]" />
+                            <span className="font-medium mr-1">Home:</span>{" "}
+                            <span className="truncate">
+                              {selectedOpponents.home}
+                            </span>
+                          </div>
+                          <div className="p-2 bg-white dark:bg-slate-900 rounded-md border border-slate-200 dark:border-slate-700 flex items-center">
+                            <ExternalLink className="h-3.5 w-3.5 mr-2 text-[#0e1e5b] dark:text-[#3b82f6]" />
+                            <span className="font-medium mr-1">Away:</span>{" "}
+                            <span className="truncate">
+                              {selectedOpponents.away}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
               )}
 
