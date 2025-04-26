@@ -21,25 +21,6 @@ const nb_pots::Int = 4 # number of pots
 const nb_teams_per_pot::Int = 9 # number of teams per pot
 const nb_teams::Int = 36  # number of teams (= nb_pots*nb_teams_per_pot)
 
-if SOLVER == "Gurobi"
-    const env = Gurobi.Env(
-        Dict{String,Any}(
-            "OutputFlag" => 0,    # Suppress console output
-            "LogToConsole" => 0,   # No logging to console
-        ),
-    )
-elseif SOLVER == "SCIP"
-    # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-
-elseif SOLVER == "ConstraintSolver"
-    const CS = ConstraintSolver
-    const env = CS.Optimizer
-    # Set the verbosity level to 0 to suppress output
-    # set_attribute(env, "display/verblevel", 0)
-else
-    error("Unknown solver. Please choose between 'Gurobi' and 'SCIP'.")
-end
-
 """
 Matrix of shape 36x8 representing the 8 opponents of each team in the draw
 opponents[i] : list of placeholders connected to placeholder i
@@ -229,6 +210,35 @@ else
     error("Invalid league. Please choose between 'CHAMPIONS_LEAGUE' and 'EUROPA_LEAGUE'.")
 end
 
+"""
+Attempts to solve a JuMP model with retry mechanism for handling solver failures.
+
+Parameters
+----------
+model::JuMP.Model - The optimization model to be solved
+
+Returns
+-------
+Bool - true if the model was solved successfully (OPTIMAL status), false if the model is genuinely infeasible
+
+Notes
+-----
+The function will retry solving the model if it encounters certain types of failures 
+(OTHER_ERROR or TIME_LIMIT). After MAX_RETRIES attempts without success, it will throw an error.
+"""
+function solve_with_retry!(model::JuMP.Model)
+    for attempt ∈ 1:MAX_RETRIES
+        optimize!(model)
+        st = termination_status(model)
+        st == MOI.OPTIMAL && return true            # Success - optimal solution found
+        if st ∉ (MOI.OTHER_ERROR, MOI.TIME_LIMIT)
+            return false                            # Real failure (infeasible, etc.)
+        end
+        @warn "Solver status $st (attempt $attempt) - retrying..."
+    end
+    error("Solver failed after $MAX_RETRIES attempts (status $(termination_status(model)))")
+end
+
 
 ################################### CODE FOR SIMULATIONS ###################################
 """
@@ -250,6 +260,7 @@ function is_solvable(
     new_team::Int,
     new_placeholder::Int,
     already_filled::Vector{Int},
+    env,
 )::Bool
     if SOLVER == "Gurobi"
         model = direct_model(Gurobi.Optimizer(env))
@@ -336,12 +347,12 @@ function is_solvable(
     # Add the new constraint for the new team in the new placeholder
     @constraint(model, y[new_team, new_placeholder] == 1)
     optimize!(model)
-    termination_status_result = termination_status(model)
+    ok = solve_with_retry!(model)
     # Free memory
     # see https://github.com/jump-dev/CPLEX.jl/issues/185#issuecomment-424399487
     model = nothing
     GC.gc()
-    return termination_status_result == MOI.OPTIMAL
+    return ok
 end
 
 """
@@ -357,6 +368,7 @@ function admissible_teams(
     nb_teams_per_pot::Int,
     selected_placeholder::Int,
     already_filled::Vector{Int},
+    env,
 )::Vector{Int}
     possible_teams = Int[]
     placeholder_pot = div(selected_placeholder - 1, nb_teams_per_pot) + 1
@@ -365,7 +377,7 @@ function admissible_teams(
 
     for team in pot_start:pot_end
         if !(team in already_filled)
-            if is_solvable(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, team, selected_placeholder, already_filled)
+            if is_solvable(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, team, selected_placeholder, already_filled, env)
                 push!(possible_teams, team)
             end
         end
@@ -386,6 +398,7 @@ function draw(
     nb_teams_per_pot::Int,
     nb_teams::Int,
     is_random::Bool=true,
+    env,
 )::Vector{Int}
     @assert nb_teams == nb_pots * nb_teams_per_pot
     already_filled = zeros(Int, nb_teams)
@@ -400,7 +413,7 @@ function draw(
 
 
     for placeholder in placeholder_order
-        possible_teams = admissible_teams(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, placeholder, already_filled)
+        possible_teams = admissible_teams(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, placeholder, already_filled, env)
         # Write possible teams in logs file
         open("draw_logs.txt", "a") do file
             write(file, "Placeholder $placeholder: Possible teams: $(possible_teams)\n")
@@ -414,7 +427,7 @@ function draw(
             end
             error("No possible teams for placeholder $placeholder")
         end
-        team = possible_teams[rand(1:end)]
+        team = rand(possible_teams)
         already_filled[placeholder] = team
     end
     return already_filled
@@ -423,6 +436,8 @@ end
 """
 Performs successive draws for the method Build Schedule First.
 The results are written in txt files.
+Syntax for parrallel use of JuMP solvers found here:
+    https://jump.dev/JuMP.jl/stable/tutorials/algorithms/parallelism/#:~:text=JuMP%20models%20are%20not%20thread,or%20silently%20produce%20incorrect%20results
 """
 function tirage_au_sort(
     nb_draw::Int,
@@ -448,44 +463,69 @@ function tirage_au_sort(
         write(file, "Logs\n")
     end
 
-    @threads for i in 1:nb_draw
+    my_lock = Threads.ReentrantLock()
+    Threads.@threads for i in 1:nb_draw
+
+        # Create one environement per thread
+        if SOLVER == "Gurobi"
+            env = Gurobi.Env(
+                Dict{String,Any}(
+                    "OutputFlag" => 0,    # Suppress console output
+                    "LogToConsole" => 0,   # No logging to console
+                ),
+            )
+        elseif SOLVER == "SCIP"
+            # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
+            env = nothing
+
+        elseif SOLVER == "ConstraintSolver"
+            CS = ConstraintSolver
+            env = CS.Optimizer
+            # Set the verbosity level to 0 to suppress output
+            set_attribute(env, "display/verblevel", 0)
+        else
+            error("Unknown solver. Please choose between 'Gurobi' and 'SCIP'.")
+        end
+
         open("draw_logs.txt", "a") do file
             write(file, "Draw $i\n")
         end
 
-        draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
+        draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random, env)
 
-        for placeholder in 1:nb_teams
-            team = draw_i[placeholder]
-            opponent_indexes = opponents[placeholder]
-            opponent_teams = [draw_i[opp] for opp in opponent_indexes]
-            matches[team, :, i] = opponent_teams
-            elo_opponents[team, i] = sum(teams[opp_team].elo for opp_team in opponent_teams)
-            uefa_opponents[team, i] = sum(teams[opp_team].uefa for opp_team in opponent_teams)
-        end
-
-        open("bsf_rd_ucl_elo.txt", "a") do file
-            for i in 1:nb_draw
-                row = join(elo_opponents[:, i], " ")
-                write(file, row * "\n")
+        Threads.lock(my_lock) do
+            for placeholder in 1:nb_teams
+                team = draw_i[placeholder]
+                opponent_indexes = opponents[placeholder]
+                opponent_teams = [draw_i[opp] for opp in opponent_indexes]
+                matches[team, :, i] = opponent_teams
+                elo_opponents[team, i] = sum(teams[opp_team].elo for opp_team in opponent_teams)
+                uefa_opponents[team, i] = sum(teams[opp_team].uefa for opp_team in opponent_teams)
             end
-        end
 
-        open("bsf_rd_ucl_uefa.txt", "a") do file
-            for i in 1:nb_draw
-                row = join(uefa_opponents[:, i], " ")
-                write(file, row * "\n")
-            end
-        end
-
-        open("bsf_rd_ucl_matches.txt", "a") do file
-            for i in 1:nb_draw
-                for team in 1:36
-                    matchups = [(team, matches[team, k, i]) for k in 1:8]
-                    row = join(matchups, " ")
-                    write(file, row * " ")
+            open("bsf_rd_ucl_elo.txt", "a") do file
+                for i in 1:nb_draw
+                    row = join(elo_opponents[:, i], " ")
+                    write(file, row * "\n")
                 end
-                write(file, "\n")
+            end
+
+            open("bsf_rd_ucl_uefa.txt", "a") do file
+                for i in 1:nb_draw
+                    row = join(uefa_opponents[:, i], " ")
+                    write(file, row * "\n")
+                end
+            end
+
+            open("bsf_rd_ucl_matches.txt", "a") do file
+                for i in 1:nb_draw
+                    for team in 1:36
+                        matchups = [(team, matches[team, k, i]) for k in 1:8]
+                        row = join(matchups, " ")
+                        write(file, row * " ")
+                    end
+                    write(file, "\n")
+                end
             end
         end
     end
