@@ -10,8 +10,9 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 end
 using SCIP, MathOptInterface, Statistics, Random, Base.Threads, Logging, .GC
 
+
 ####################################### DRAW PARAMETERS #######################################
-const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP", "ConstraintSolver"
+const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP"
 const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE", "CHAMPIONS_LEAGUE"
 const NB_DRAWS::Int = 10
 const IS_RANDOM::Bool = true
@@ -20,6 +21,45 @@ const IS_RANDOM::Bool = true
 const nb_pots::Int = 4 # number of pots
 const nb_teams_per_pot::Int = 9 # number of teams per pot
 const nb_teams::Int = 36  # number of teams (= nb_pots*nb_teams_per_pot)
+
+
+
+#──────────────────────── INFRA THREAD-SAFE ─────────────────
+const MAX_RETRIES = 3
+const env_by_tid = Dict{Int,Any}()
+const mdl_by_tid = Dict{Int,JuMP.Model}()
+
+new_env() = SOLVER == "Gurobi" ? Gurobi.Env("OutputFlag" => 0, "LogToConsole" => 0) :
+            SOLVER == "SCIP" ? SCIP.Optimizer() :
+            error("Unknown solver")
+
+function thread_env()
+    get!(env_by_tid, threadid()) do
+        new_env()
+    end
+end
+
+"Renvoie le modèle unique du thread, en le réinitialisant."
+function thread_model()
+    get!(mdl_by_tid, threadid()) do
+        if SOLVER == "Gurobi"
+            direct_model(Gurobi.Optimizer(thread_env()))
+        else                    # SCIP
+            Model(() -> thread_env())
+        end
+    end |> (m -> (MOI.empty!(backend(m)); m))   # reset puis renvoi
+end
+
+function solve_with_retry!(model)
+    for k in 1:MAX_RETRIES
+        optimize!(model)
+        st = termination_status(model)
+        st == MOI.OPTIMAL && return true
+        st ∉ (MOI.OTHER_ERROR, MOI.TIME_LIMIT) && return false
+        @warn "solver status $st (tentative $k) – retry"
+    end
+    error("Solver failed after $MAX_RETRIES retries (status $(termination_status(model)))")
+end
 
 """
 Matrix of shape 36x8 representing the 8 opponents of each team in the draw
@@ -210,34 +250,6 @@ else
     error("Invalid league. Please choose between 'CHAMPIONS_LEAGUE' and 'EUROPA_LEAGUE'.")
 end
 
-"""
-Attempts to solve a JuMP model with retry mechanism for handling solver failures.
-
-Parameters
-----------
-model::JuMP.Model - The optimization model to be solved
-
-Returns
--------
-Bool - true if the model was solved successfully (OPTIMAL status), false if the model is genuinely infeasible
-
-Notes
------
-The function will retry solving the model if it encounters certain types of failures 
-(OTHER_ERROR or TIME_LIMIT). After MAX_RETRIES attempts without success, it will throw an error.
-"""
-function solve_with_retry!(model::JuMP.Model)
-    for attempt ∈ 1:MAX_RETRIES
-        optimize!(model)
-        st = termination_status(model)
-        st == MOI.OPTIMAL && return true            # Success - optimal solution found
-        if st ∉ (MOI.OTHER_ERROR, MOI.TIME_LIMIT)
-            return false                            # Real failure (infeasible, etc.)
-        end
-        @warn "Solver status $st (attempt $attempt) - retrying..."
-    end
-    error("Solver failed after $MAX_RETRIES attempts (status $(termination_status(model)))")
-end
 
 
 ################################### CODE FOR SIMULATIONS ###################################
@@ -260,20 +272,9 @@ function is_solvable(
     new_team::Int,
     new_placeholder::Int,
     already_filled::Vector{Int},
-    env,
 )::Bool
-    if SOLVER == "Gurobi"
-        model = direct_model(Gurobi.Optimizer(env))
-    elseif SOLVER == "SCIP"
-        model = Model(SCIP.Optimizer)
-        set_attribute(model, "display/verblevel", 0)
-    elseif SOLVER == "ConstraintSolver"
-        model = Model(env)
-        set_attribute(model, "display/verblevel", 0)
-    else
-        error("Invalid SOLVER")
-    end
 
+    model = thread_model() # modèle réinitialisé
     nb_teams = nb_pots * nb_teams_per_pot
     # y[i,j] = 1 if team i is in placeholder j, 0 otherwise
     @variable(model, y[1:nb_teams, 1:nb_teams], Bin)
@@ -346,13 +347,8 @@ function is_solvable(
 
     # Add the new constraint for the new team in the new placeholder
     @constraint(model, y[new_team, new_placeholder] == 1)
-    optimize!(model)
-    ok = solve_with_retry!(model)
-    # Free memory
-    # see https://github.com/jump-dev/CPLEX.jl/issues/185#issuecomment-424399487
-    model = nothing
-    GC.gc()
-    return ok
+
+    return solve_with_retry!(model)
 end
 
 """
@@ -368,7 +364,6 @@ function admissible_teams(
     nb_teams_per_pot::Int,
     selected_placeholder::Int,
     already_filled::Vector{Int},
-    env,
 )::Vector{Int}
     possible_teams = Int[]
     placeholder_pot = div(selected_placeholder - 1, nb_teams_per_pot) + 1
@@ -377,7 +372,7 @@ function admissible_teams(
 
     for team in pot_start:pot_end
         if !(team in already_filled)
-            if is_solvable(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, team, selected_placeholder, already_filled, env)
+            if is_solvable(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, team, selected_placeholder, already_filled)
                 push!(possible_teams, team)
             end
         end
@@ -398,7 +393,6 @@ function draw(
     nb_teams_per_pot::Int,
     nb_teams::Int,
     is_random::Bool=true,
-    env,
 )::Vector{Int}
     @assert nb_teams == nb_pots * nb_teams_per_pot
     already_filled = zeros(Int, nb_teams)
@@ -413,7 +407,7 @@ function draw(
 
 
     for placeholder in placeholder_order
-        possible_teams = admissible_teams(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, placeholder, already_filled, env)
+        possible_teams = admissible_teams(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, placeholder, already_filled)
         # Write possible teams in logs file
         open("draw_logs.txt", "a") do file
             write(file, "Placeholder $placeholder: Possible teams: $(possible_teams)\n")
@@ -466,32 +460,11 @@ function tirage_au_sort(
     my_lock = Threads.ReentrantLock()
     Threads.@threads for i in 1:nb_draw
 
-        # Create one environement per thread
-        if SOLVER == "Gurobi"
-            env = Gurobi.Env(
-                Dict{String,Any}(
-                    "OutputFlag" => 0,    # Suppress console output
-                    "LogToConsole" => 0,   # No logging to console
-                ),
-            )
-        elseif SOLVER == "SCIP"
-            # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-            env = nothing
-
-        elseif SOLVER == "ConstraintSolver"
-            CS = ConstraintSolver
-            env = CS.Optimizer
-            # Set the verbosity level to 0 to suppress output
-            set_attribute(env, "display/verblevel", 0)
-        else
-            error("Unknown solver. Please choose between 'Gurobi' and 'SCIP'.")
-        end
-
         open("draw_logs.txt", "a") do file
             write(file, "Draw $i\n")
         end
 
-        draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random, env)
+        draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
 
         Threads.lock(my_lock) do
             for placeholder in 1:nb_teams
