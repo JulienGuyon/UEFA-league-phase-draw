@@ -8,8 +8,9 @@ using JuMP
 if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
     using Gurobi
 end
-using SCIP, MathOptInterface, Statistics, Random, Base.Threads, Logging, .GC
-
+using SCIP, MathOptInterface, Statistics, Random, Logging
+# using Base.Threads
+# using  .GC
 
 ####################################### DRAW PARAMETERS #######################################
 const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP"
@@ -273,8 +274,18 @@ function is_solvable(
     new_placeholder::Int,
     already_filled::Vector{Int},
 )::Bool
+    if SOLVER == "Gurobi"
+        model = direct_model(Gurobi.Optimizer(env))
+    elseif SOLVER == "SCIP"
+        model = Model(SCIP.Optimizer)
+        # set_attribute(model, "display/verblevel", 0)
+    elseif SOLVER == "ConstraintSolver"
+        model = Model(env)
+        # set_attribute(model, "display/verblevel", 0)
+    else
+        error("Invalid SOLVER")
+    end
 
-    model = thread_model() # modèle réinitialisé
     nb_teams = nb_pots * nb_teams_per_pot
     # y[i,j] = 1 if team i is in placeholder j, 0 otherwise
     @variable(model, y[1:nb_teams, 1:nb_teams], Bin)
@@ -347,8 +358,13 @@ function is_solvable(
 
     # Add the new constraint for the new team in the new placeholder
     @constraint(model, y[new_team, new_placeholder] == 1)
-
-    return solve_with_retry!(model)
+    optimize!(model)
+    termination_status_result = termination_status(model)
+    # Free memory
+    # see https://github.com/jump-dev/CPLEX.jl/issues/185#issuecomment-424399487
+    model = nothing
+    # GC.gc()
+    return termination_status_result == MOI.OPTIMAL
 end
 
 """
@@ -457,9 +473,8 @@ function tirage_au_sort(
         write(file, "Logs\n")
     end
 
-    my_lock = Threads.ReentrantLock()
-    Threads.@threads for i in 1:nb_draw
-
+    # @threads for i in 1:nb_draw
+    for i in 1:nb_draw
         open("draw_logs.txt", "a") do file
             write(file, "Draw $i\n")
         end
@@ -506,7 +521,7 @@ function tirage_au_sort(
 end
 
 ###################################### COMMANDS ###################################### 
-println("Nombre de threads utilisés : ", Threads.nthreads())
+# println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
     tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, IS_RANDOM)
