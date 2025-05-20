@@ -8,7 +8,9 @@ using JuMP
 if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
     using Gurobi
 end
-using SCIP, MathOptInterface, Statistics, Random, Base.Threads, Logging, .GC
+using SCIP, MathOptInterface, Statistics, Random, Logging
+# using Base.Threads
+# using  .GC
 
 ####################################### DRAW PARAMETERS #######################################
 const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP", "ConstraintSolver"
@@ -255,10 +257,10 @@ function is_solvable(
         model = direct_model(Gurobi.Optimizer(env))
     elseif SOLVER == "SCIP"
         model = Model(SCIP.Optimizer)
-        set_attribute(model, "display/verblevel", 0)
+        # set_attribute(model, "display/verblevel", 0)
     elseif SOLVER == "ConstraintSolver"
         model = Model(env)
-        set_attribute(model, "display/verblevel", 0)
+        # set_attribute(model, "display/verblevel", 0)
     else
         error("Invalid SOLVER")
     end
@@ -340,7 +342,7 @@ function is_solvable(
     # Free memory
     # see https://github.com/jump-dev/CPLEX.jl/issues/185#issuecomment-424399487
     model = nothing
-    GC.gc()
+    # GC.gc()
     return termination_status_result == MOI.OPTIMAL
 end
 
@@ -448,7 +450,8 @@ function tirage_au_sort(
         write(file, "Logs\n")
     end
 
-    @threads for i in 1:nb_draw
+    # @threads for i in 1:nb_draw
+    for i in 1:nb_draw
         open("draw_logs.txt", "a") do file
             write(file, "Draw $i\n")
         end
@@ -493,7 +496,7 @@ function tirage_au_sort(
 end
 
 ###################################### COMMANDS ###################################### 
-println("Nombre de threads utilisés : ", Threads.nthreads())
+# println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
     tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, IS_RANDOM)
