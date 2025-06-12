@@ -334,7 +334,7 @@ function is_solvable(
             write(file, "Timestamp: $(now())\n")
             write(file, "Already filled: $already_filled\n\n")
         end
-        @warning "Solver error: $termination_status_result"
+        @info "Solver error: $termination_status_result"
     end
 
     # Free memory
