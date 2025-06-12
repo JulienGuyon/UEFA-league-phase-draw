@@ -24,43 +24,9 @@ const nb_teams_per_pot::Int = 9 # number of teams per pot
 const nb_teams::Int = 36  # number of teams (= nb_pots*nb_teams_per_pot)
 
 
-
-#──────────────────────── INFRA THREAD-SAFE ─────────────────
-const MAX_RETRIES = 3
-const env_by_tid = Dict{Int,Any}()
-const mdl_by_tid = Dict{Int,JuMP.Model}()
-
 new_env() = SOLVER == "Gurobi" ? Gurobi.Env("OutputFlag" => 0, "LogToConsole" => 0) :
             SOLVER == "SCIP" ? SCIP.Optimizer() :
             error("Unknown solver")
-
-function thread_env()
-    get!(env_by_tid, threadid()) do
-        new_env()
-    end
-end
-
-"Renvoie le modèle unique du thread, en le réinitialisant."
-function thread_model()
-    get!(mdl_by_tid, threadid()) do
-        if SOLVER == "Gurobi"
-            direct_model(Gurobi.Optimizer(thread_env()))
-        else                    # SCIP
-            Model(() -> thread_env())
-        end
-    end |> (m -> (MOI.empty!(backend(m)); m))   # reset puis renvoi
-end
-
-function solve_with_retry!(model)
-    for k in 1:MAX_RETRIES
-        optimize!(model)
-        st = termination_status(model)
-        st == MOI.OPTIMAL && return true
-        st ∉ (MOI.OTHER_ERROR, MOI.TIME_LIMIT) && return false
-        @warn "solver status $st (tentative $k) – retry"
-    end
-    error("Solver failed after $MAX_RETRIES retries (status $(termination_status(model)))")
-end
 
 """
 Matrix of shape 36x8 representing the 8 opponents of each team in the draw
@@ -360,6 +326,17 @@ function is_solvable(
     @constraint(model, y[new_team, new_placeholder] == 1)
     optimize!(model)
     termination_status_result = termination_status(model)
+
+    # Check for solver errors and log them
+    if termination_status_result != MOI.OPTIMAL && termination_status_result != MOI.INFEASIBLE
+        open("solver-error.txt", "a") do file
+            write(file, "Solver error: $termination_status_result for team $new_team in placeholder $new_placeholder\n")
+            write(file, "Timestamp: $(now())\n")
+            write(file, "Already filled: $already_filled\n\n")
+        end
+        @warning "Solver error: $termination_status_result"
+    end
+
     # Free memory
     # see https://github.com/jump-dev/CPLEX.jl/issues/185#issuecomment-424399487
     model = nothing
@@ -413,35 +390,57 @@ function draw(
     @assert nb_teams == nb_pots * nb_teams_per_pot
     already_filled = zeros(Int, nb_teams)
 
-    if is_random
-        placeholder_order = shuffle!(collect(1:nb_teams))
-    else
-        placeholder_order = collect(1:nb_teams)
+    # Determine order of placeholders
+    placeholder_order = is_random ? shuffle!(collect(1:nb_teams)) : collect(1:nb_teams)
+
+    # Open log file for this draw (append mode)
+    open("draw_logs.txt", "a") do log
+        write(log, "\n=== New draw ===\n")
+        write(log, "Placeholder order: $(placeholder_order)\n")
     end
 
-    @info "placeholder_order" placeholder_order
-
-
+    # Iterate through each placeholder
     for placeholder in placeholder_order
-        possible_teams = admissible_teams(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, placeholder, already_filled)
-        # Write possible teams in logs file
-        open("draw_logs.txt", "a") do file
-            write(file, "Placeholder $placeholder: Possible teams: $(possible_teams)\n")
+        # Log selected placeholder
+        open("draw_logs.txt", "a") do log
+            write(log, "Selected placeholder: $placeholder\n")
         end
+
+        # Compute admissible teams for this placeholder
+        possible_teams = admissible_teams(
+            nationalities, opponents, team_nationalities,
+            nb_pots, nb_teams_per_pot,
+            placeholder, already_filled
+        )
+
+        # Log admissible teams
+        open("draw_logs.txt", "a") do log
+            write(log, "Admissible teams for placeholder $placeholder: $(possible_teams)\n")
+        end
+
+        # Check if no admissible teams found
         if isempty(possible_teams)
-            @warn "No possible teams for placeholder $placeholder"
-            @warn "already_filled" already_filled
-            open("draw_logs.txt", "a") do file
-                write(file, "################# No possible teams for placeholder $placeholder\n ####################")
-                write(file, "already_filled: $already_filled\n")
+            open("draw_logs.txt", "a") do log
+                write(log, "ERROR: No admissible teams for placeholder $placeholder\n")
+                write(log, "State of assignments: $(already_filled)\n")
             end
             error("No possible teams for placeholder $placeholder")
         end
+
+        # Select a team
         team = rand(possible_teams)
         already_filled[placeholder] = team
+
+        # Log selected team
+        open("draw_logs.txt", "a") do log
+            write(log, "Assigned team $team to placeholder $placeholder\n")
+            write(log, "Current state of assignments: $(already_filled)\n")
+        end
     end
+
     return already_filled
 end
+
 
 """
 Performs successive draws for the method Build Schedule First.
@@ -481,39 +480,37 @@ function tirage_au_sort(
 
         draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
 
-        Threads.lock(my_lock) do
-            for placeholder in 1:nb_teams
-                team = draw_i[placeholder]
-                opponent_indexes = opponents[placeholder]
-                opponent_teams = [draw_i[opp] for opp in opponent_indexes]
-                matches[team, :, i] = opponent_teams
-                elo_opponents[team, i] = sum(teams[opp_team].elo for opp_team in opponent_teams)
-                uefa_opponents[team, i] = sum(teams[opp_team].uefa for opp_team in opponent_teams)
-            end
+        for placeholder in 1:nb_teams
+            team = draw_i[placeholder]
+            opponent_indexes = opponents[placeholder]
+            opponent_teams = [draw_i[opp] for opp in opponent_indexes]
+            matches[team, :, i] = opponent_teams
+            elo_opponents[team, i] = sum(teams[opp_team].elo for opp_team in opponent_teams)
+            uefa_opponents[team, i] = sum(teams[opp_team].uefa for opp_team in opponent_teams)
+        end
 
-            open("bsf_rd_ucl_elo.txt", "a") do file
-                for i in 1:nb_draw
-                    row = join(elo_opponents[:, i], " ")
-                    write(file, row * "\n")
-                end
+        open("bsf_rd_ucl_elo.txt", "a") do file
+            for i in 1:nb_draw
+                row = join(elo_opponents[:, i], " ")
+                write(file, row * "\n")
             end
+        end
 
-            open("bsf_rd_ucl_uefa.txt", "a") do file
-                for i in 1:nb_draw
-                    row = join(uefa_opponents[:, i], " ")
-                    write(file, row * "\n")
-                end
+        open("bsf_rd_ucl_uefa.txt", "a") do file
+            for i in 1:nb_draw
+                row = join(uefa_opponents[:, i], " ")
+                write(file, row * "\n")
             end
+        end
 
-            open("bsf_rd_ucl_matches.txt", "a") do file
-                for i in 1:nb_draw
-                    for team in 1:36
-                        matchups = [(team, matches[team, k, i]) for k in 1:8]
-                        row = join(matchups, " ")
-                        write(file, row * " ")
-                    end
-                    write(file, "\n")
+        open("bsf_rd_ucl_matches.txt", "a") do file
+            for i in 1:nb_draw
+                for team in 1:36
+                    matchups = [(team, matches[team, k, i]) for k in 1:8]
+                    row = join(matchups, " ")
+                    write(file, row * " ")
                 end
+                write(file, "\n")
             end
         end
     end
