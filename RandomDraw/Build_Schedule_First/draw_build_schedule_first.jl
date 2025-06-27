@@ -9,13 +9,13 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
     using Gurobi
 end
 using SCIP, MathOptInterface, Statistics, Random, Logging
-# using Base.Threads
+using Base.Threads
 # using  .GC
 
 ####################################### DRAW PARAMETERS #######################################
-const SOLVER::String = "SCIP" # Alternative: "Gurobi", "SCIP"
+const SOLVER::String = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE", "CHAMPIONS_LEAGUE"
-const NB_DRAWS::Int = 10
+const NB_DRAWS::Int = 1000
 const IS_RANDOM::Bool = true
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -24,9 +24,9 @@ const nb_teams_per_pot::Int = 9 # number of teams per pot
 const nb_teams::Int = 36  # number of teams (= nb_pots*nb_teams_per_pot)
 
 
-new_env() = SOLVER == "Gurobi" ? Gurobi.Env("OutputFlag" => 0, "LogToConsole" => 0) :
-            SOLVER == "SCIP" ? SCIP.Optimizer() :
-            error("Unknown solver")
+# new_env() = SOLVER == "Gurobi" ? Gurobi.Env("OutputFlag" => 0, "LogToConsole" => 0) :
+#             SOLVER == "SCIP" ? SCIP.Optimizer() :
+#             error("Unknown solver")
 
 """
 Matrix of shape 36x8 representing the 8 opponents of each team in the draw
@@ -241,7 +241,7 @@ function is_solvable(
     already_filled::Vector{Int},
 )::Bool
     if SOLVER == "Gurobi"
-        model = direct_model(Gurobi.Optimizer(env))
+        model = Model(Gurobi.Optimizer)
     elseif SOLVER == "SCIP"
         model = Model(SCIP.Optimizer)
         # set_attribute(model, "display/verblevel", 0)
@@ -258,24 +258,28 @@ function is_solvable(
 
     # Exactly one team is associated to each placeholder
     for placeholder in 1:nb_teams
-        @constraint(model, sum(y[team, placeholder] for team in 1:nb_teams) == 1)
+        @constraint(model, sum(y[team, placeholder] for team in 1:nb_teams) - 1 <= 1e-3)
+        @constraint(model, sum(y[team, placeholder] for team in 1:nb_teams) - 1 >= -1e-3)
     end
 
     # Exactly one placeholder is associated to each team
     for team in 1:nb_teams
-        @constraint(model, sum(y[team, placeholder] for placeholder in 1:nb_teams) == 1)
+        @constraint(model, sum(y[team, placeholder] for placeholder in 1:nb_teams) - 1 <= 1e-3)
+        @constraint(model, sum(y[team, placeholder] for placeholder in 1:nb_teams) - 1 >= -1e-3)
     end
 
     # Every team must be associated with a placeholder from its pot
     # (e.g., team indexed from 1 to nb_teams_per_pot must be associated to a placeholder numbered between 1 and nb_teams_per_pot)
     for pot_index in 1:nb_pots
         for team_pot_index in 1:nb_teams_per_pot
-            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for placeholder_pot_index in 1:nb_teams_per_pot) == 1)
+            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for placeholder_pot_index in 1:nb_teams_per_pot) - 1 <= 1e-3)
+            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for placeholder_pot_index in 1:nb_teams_per_pot) - 1 >= -1e-3)
             for other_pot_index in 1:nb_pots
                 if other_pot_index != pot_index
                     # it cannot be associated with a corresponding placeholder
                     # (e.g., teams 1 to 9 cannot be placed in a placeholder numbered between 10 and 18)
-                    @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (other_pot_index-1)*nb_teams_per_pot+placeholder_other_pot_index] for placeholder_other_pot_index in 1:nb_teams_per_pot) == 0)
+                    @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (other_pot_index-1)*nb_teams_per_pot+placeholder_other_pot_index] for placeholder_other_pot_index in 1:nb_teams_per_pot) <= 1e-3)
+                    @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (other_pot_index-1)*nb_teams_per_pot+placeholder_other_pot_index] for placeholder_other_pot_index in 1:nb_teams_per_pot) >= -1e-3)
                 end
             end
         end
@@ -284,10 +288,12 @@ function is_solvable(
     # Likewise, each team must be associated with a placeholder from its pot
     for pot_index in 1:nb_pots
         for placeholder_pot_index in 1:nb_teams_per_pot
-            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) == 1)
+            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) - 1 <= 1e-3)
+            @constraint(model, sum(y[(pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) - 1 >= -1e-3)
             for other_pot_index in 1:nb_pots
                 if other_pot_index != pot_index
-                    @constraint(model, sum(y[(other_pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) == 0)
+                    @constraint(model, sum(y[(other_pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) <= 1e-3)
+                    @constraint(model, sum(y[(other_pot_index-1)*nb_teams_per_pot+team_pot_index, (pot_index-1)*nb_teams_per_pot+placeholder_pot_index] for team_pot_index in 1:nb_teams_per_pot) >= -1e-3)
                 end
             end
         end
@@ -301,7 +307,7 @@ function is_solvable(
                 for placeholder_index in 1:nb_teams
                     for neighbor in opponents[placeholder_index]
                         # cannot be adjacent if the team is indeed in this placeholder
-                        @constraint(model, y[team_index, placeholder_index] + y[compatriot_team_index, neighbor] <= 1)
+                        @constraint(model, y[team_index, placeholder_index] + y[compatriot_team_index, neighbor] <= 1 + 1e-3)
                     end
                 end
             end
@@ -311,19 +317,21 @@ function is_solvable(
     # Every placeholder shall have at most 2 opponents from the same nationality
     for placeholder_index in 1:nb_teams
         for nationality_group in nationalities
-            @constraint(model, sum(y[team_index, opponent_placeholder_index] for team_index in nationality_group for opponent_placeholder_index in opponents[placeholder_index]) <= 2)
+            @constraint(model, sum(y[team_index, opponent_placeholder_index] for team_index in nationality_group for opponent_placeholder_index in opponents[placeholder_index]) <= 2 + 1e-3)
         end
     end
 
     # Write the constraints for the already filled placeholders
     for placeholder_index in 1:nb_teams
         if already_filled[placeholder_index] > 0
-            @constraint(model, y[already_filled[placeholder_index], placeholder_index] == 1)
+            @constraint(model, y[already_filled[placeholder_index], placeholder_index] - 1 <= 1e-3)
+            @constraint(model, y[already_filled[placeholder_index], placeholder_index] - 1 >= -1e-3)
         end
     end
 
     # Add the new constraint for the new team in the new placeholder
-    @constraint(model, y[new_team, new_placeholder] == 1)
+    @constraint(model, y[new_team, new_placeholder] - 1 <= 1e-3)
+    @constraint(model, y[new_team, new_placeholder] - 1 >= -1e-3)
     optimize!(model)
     termination_status_result = termination_status(model)
 
@@ -472,8 +480,8 @@ function tirage_au_sort(
         write(file, "Logs\n")
     end
 
-    # @threads for i in 1:nb_draw
-    for i in 1:nb_draw
+    @threads for i in 1:nb_draw
+    # for i in 1:nb_draw
         open("draw_logs.txt", "a") do file
             write(file, "Draw $i\n")
         end
@@ -488,37 +496,37 @@ function tirage_au_sort(
             elo_opponents[team, i] = sum(teams[opp_team].elo for opp_team in opponent_teams)
             uefa_opponents[team, i] = sum(teams[opp_team].uefa for opp_team in opponent_teams)
         end
+    end
 
-        open("bsf_rd_ucl_elo.txt", "a") do file
-            for i in 1:nb_draw
-                row = join(elo_opponents[:, i], " ")
-                write(file, row * "\n")
-            end
+    open("bsf_rd_ucl_elo.txt", "a") do file
+        for i in 1:nb_draw
+            row = join(elo_opponents[:, i], " ")
+            write(file, row * "\n")
         end
+    end
 
-        open("bsf_rd_ucl_uefa.txt", "a") do file
-            for i in 1:nb_draw
-                row = join(uefa_opponents[:, i], " ")
-                write(file, row * "\n")
-            end
+    open("bsf_rd_ucl_uefa.txt", "a") do file
+        for i in 1:nb_draw
+            row = join(uefa_opponents[:, i], " ")
+            write(file, row * "\n")
         end
+    end
 
-        open("bsf_rd_ucl_matches.txt", "a") do file
-            for i in 1:nb_draw
-                for team in 1:36
-                    matchups = [(team, matches[team, k, i]) for k in 1:8]
-                    row = join(matchups, " ")
-                    write(file, row * " ")
-                end
-                write(file, "\n")
+    open("bsf_rd_ucl_matches.txt", "a") do file
+        for i in 1:nb_draw
+            for team in 1:36
+                matchups = [(team, matches[team, k, i]) for k in 1:8]
+                row = join(matchups, " ")
+                write(file, row * " ")
             end
+            write(file, "\n")
         end
     end
     return 0
 end
 
 ###################################### COMMANDS ###################################### 
-# println("Nombre de threads utilisés : ", Threads.nthreads())
+println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
     tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, IS_RANDOM)
