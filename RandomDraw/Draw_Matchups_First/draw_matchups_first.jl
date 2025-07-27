@@ -4,7 +4,7 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 end
 using JuMP, SCIP, ConstraintSolver, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Logging
 ####################################### CONFIG VARIABLES #######################################
-const SOLVER = "CONSTRAINT_SOLVER" # Alternative: "Gurobi", "SCIP"
+const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
 const NB_DRAWS = 1
 const DEBUG = true
