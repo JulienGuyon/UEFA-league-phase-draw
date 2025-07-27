@@ -913,6 +913,8 @@ function uefa_draw_with_rejection(nb_draw::Int=1)
 
                     li_prefiltered_matches = prefilter_admissible_matches(selected_team, opponent_pot, constraints)
                     problem_solved = false
+                    home = nothing
+                    away = nothing
                     while !problem_solved
                         # We select randomly a prefiltered match, check the validity with the solver. If it is not valid, we drop it from li_prefiltered_matches and continue.
                         if isempty(li_prefiltered_matches)
@@ -920,14 +922,14 @@ function uefa_draw_with_rejection(nb_draw::Int=1)
                             return 1
                         end
                         possible_selected_match = li_prefiltered_matches[rand(1:end)]
-                        home, away = possible_selected_match
+                        h, a = possible_selected_match
 
                         if solve_problem(selected_team, constraints, possible_selected_match)
                             problem_solved = true
-                            home, away = possible_selected_match
+                            home, away = h, a
                             @info "Selected match for $(selected_team.club): $(home.club) vs $(away.club)"
                         else
-                            @info "Match $(home.club) vs $(away.club) is not admissible for $(selected_team.club). Dropping it from prefiltered matches."
+                            @info "Match $(h.club) vs $(a.club) is not admissible for $(selected_team.club). Dropping it from prefiltered matches."
                             li_prefiltered_matches = filter(m -> m != possible_selected_match, li_prefiltered_matches)
                         end
                     end
@@ -979,6 +981,6 @@ end
 
 ###################################### COMMANDS ###################################### 
 @time begin
-    uefa_draw_randomized(NB_DRAWS)
+    uefa_draw_with_rejection(NB_DRAWS)
     @info "$(n_simul) draws have been successfully performed"
 end
