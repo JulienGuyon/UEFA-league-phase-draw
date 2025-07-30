@@ -7,17 +7,17 @@ using JuMP, SCIP, ConstraintSolver, MathOptInterface, CSV, DataFrames, Random, B
 const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
 const NB_DRAWS = 1
-const DEBUG = true
+const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 # using Gurobi
 # We set up once the SOLVER environment only once 
 if SOLVER == "Gurobi"
-    const env = Gurobi.Env(
-        Dict{String,Any}(
-            "OutputFlag" => 0,    # Suppress console output
-            "LogToConsole" => 0,   # No logging to console
-        ),
-    )
+    const env = Gurobi.Env()
+#        Dict{String,Any}(
+#            "OutputFlag" => 0,    # Suppress console output
+#            "LogToConsole" => 0,   # No logging to console
+#        ),
+#    )
 elseif SOLVER == "SCIP"
     # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
     const env = SCIP.Optimizer
@@ -881,7 +881,7 @@ function uefa_draw_with_rejection(nb_draw::Int=1)
     elo_opponents = zeros(Float64, 36, nb_draw)
     uefa_opponents = zeros(Float64, 36, nb_draw)
     matches = zeros(Int, 36, 8, nb_draw)
-    for s in 1:nb_draw
+    @threads for s in 1:nb_draw
         constraints = initialize_constraints(all_nationalities)
         for pot_index in 1:4
             # Access the selected pot from A to D
