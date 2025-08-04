@@ -691,8 +691,21 @@ function uefa_draw(nb_draw::Int=1)
     uefa_opponents = zeros(Float64, 36, nb_draw)
     matches = zeros(Int, 36, 8, nb_draw)
     @threads for s in 1:nb_draw
-        # Gurobi env are not Thread Safe ! 
-        env = Gurobi.Env()
+        # We set up once the SOLVER environment once per thread
+        # Gurobi env are not Thread Safe !
+        if SOLVER == "Gurobi"
+            env = Gurobi.Env()
+        elseif SOLVER == "SCIP"
+            # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
+            env = SCIP.Optimizer
+
+        elseif SOLVER == "CONSTRAINT_SOLVER"
+            CS = ConstraintSolver
+            env = CS.Optimizer
+
+        else
+            error("Invalid SOLVER. Please chose between 'Gurobi', 'SCIP' or 'CONSTRAINT_SOLVER'")
+        end
         constraints = initialize_constraints(all_nationalities)
         for pot_index in 1:4
             # Access the selected pot from A to D
@@ -787,6 +800,21 @@ function uefa_draw_randomized(nb_draw::Int)
     uefa_opponents = zeros(Float64, 36, nb_draw)
     matches = zeros(Int, 36, 8, nb_draw)
     @threads for s in 1:nb_draw
+        # We set up once the SOLVER environment once per thread
+        # Gurobi env are not Thread Safe !
+        if SOLVER == "Gurobi"
+            env = Gurobi.Env()
+        elseif SOLVER == "SCIP"
+            # Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
+            env = SCIP.Optimizer
+
+        elseif SOLVER == "CONSTRAINT_SOLVER"
+            CS = ConstraintSolver
+            env = CS.Optimizer
+
+        else
+            error("Invalid SOLVER. Please chose between 'Gurobi', 'SCIP' or 'CONSTRAINT_SOLVER'")
+        end
         constraints = initialize_constraints(all_nationalities)
         shuffled_order = shuffle(collect(1:36))
         open("order_selection.txt", "a") do file
