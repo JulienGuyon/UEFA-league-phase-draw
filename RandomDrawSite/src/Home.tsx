@@ -125,14 +125,16 @@ export default function Home() {
               href="#simulator"
               className="group"
               aria-label="Simulator"
-              onClick={e => {
-              e.preventDefault();
-              document.getElementById("simulator")?.scrollIntoView({ behavior: "smooth" });
+              onClick={(e) => {
+                e.preventDefault();
+                document
+                  .getElementById("simulator")
+                  ?.scrollIntoView({ behavior: "smooth" });
               }}
             >
               <Button className="bg-[#cfa749] hover:bg-[#e0b850] text-[#0e1e5b] border-0">
-              <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
-              Try the Simulator
+                <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
+                Try the Simulator
               </Button>
             </a>
           </div>
@@ -288,16 +290,20 @@ export default function Home() {
                   Draw Simulator
                 </CardTitle>
               </div>
-                <CardDescription className="text-lg max-w-3xl mx-auto">
+              <CardDescription className="text-lg max-w-3xl mx-auto">
                 We modelized UEFA constraints using Integer Linear Programming
                 in Julia. Try our interactive simulator to understand how the
                 new Champions League draw works.
-                </CardDescription>
-                <div className="mt-4 flex justify-center">
-                <div className="bg-yellow-100 border-l-4 border-yellow-400 text-yellow-800 dark:bg-yellow-900/30 dark:border-yellow-600 dark:text-yellow-200 px-4 py-3 rounded-md text-sm max-w-xl" role="alert">
-                  The draw performed is chosen from a list of pre-recorded draws.
+              </CardDescription>
+              <div className="mt-4 flex justify-center">
+                <div
+                  className="bg-yellow-100 border-l-4 border-yellow-400 text-yellow-800 dark:bg-yellow-900/30 dark:border-yellow-600 dark:text-yellow-200 px-4 py-3 rounded-md text-sm max-w-xl"
+                  role="alert"
+                >
+                  The draw performed is chosen from a list of pre-recorded
+                  draws.
                 </div>
-                </div></div>
+              </div>
             </CardHeader>
             <CardContent className="relative z-10 p-6">
               <CardContent className="relative z-10 p-6 flex justify-center items-center">
