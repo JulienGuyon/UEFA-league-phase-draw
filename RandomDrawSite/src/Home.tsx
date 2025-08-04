@@ -121,10 +121,18 @@ export default function Home() {
                 Read the article
               </Button>
             </a>
-            <a href="#simulator" className="group" aria-label="Simulator">
+            <a
+              href="#simulator"
+              className="group"
+              aria-label="Simulator"
+              onClick={e => {
+              e.preventDefault();
+              document.getElementById("simulator")?.scrollIntoView({ behavior: "smooth" });
+              }}
+            >
               <Button className="bg-[#cfa749] hover:bg-[#e0b850] text-[#0e1e5b] border-0">
-                <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
-                Try the Simulator
+              <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
+              Try the Simulator
               </Button>
             </a>
           </div>
