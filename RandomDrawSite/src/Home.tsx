@@ -121,22 +121,17 @@ export default function Home() {
                 Read the article
               </Button>
             </a>
-            <a
-              href="#simulator"
-              className="group"
-              aria-label="Simulator"
-              onClick={(e) => {
-                e.preventDefault();
-                document
-                  .getElementById("simulator")
-                  ?.scrollIntoView({ behavior: "smooth" });
-              }}
+
+            <Button
+              asChild
+              variant="secondary"
+              className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-sm"
             >
-              <Button className="bg-[#cfa749] hover:bg-[#e0b850] text-[#0e1e5b] border-0">
+              <a href="#simulator">
                 <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
                 Try the Simulator
-              </Button>
-            </a>
+              </a>
+            </Button>
           </div>
 
           <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent"></div>
