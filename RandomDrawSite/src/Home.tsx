@@ -100,7 +100,7 @@ export default function Home() {
 
           <div className="flex flex-wrap gap-6 justify-center mb-6">
             <a
-              href="https://github.com/Jeerhz"
+              href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
               className="group"
               aria-label="GitHub"
             >
@@ -566,10 +566,10 @@ export default function Home() {
                 <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
                   Julia code available at:{" "}
                   <a
-                    href="https://julienguyon.github.io/UEFA-draws"
+                    href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
                     className="text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    julienguyon.github.io/UEFA-draws
+                    github.com/JulienGuyon/UEFA-league-phase-draw
                   </a>
                 </div>
               </div>
