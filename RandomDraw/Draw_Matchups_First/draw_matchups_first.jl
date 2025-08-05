@@ -424,6 +424,9 @@ function solve_problem(selected_team::Team, constraints::Dict{String,Constraint}
     else
         error("Unexpected SOLVER status: $status")
     end
+
+    model = nothing # Free the model to avoid memory leaks
+    return result
 end
 
 """
