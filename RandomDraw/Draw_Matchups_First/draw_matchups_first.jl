@@ -414,13 +414,11 @@ function solve_problem(selected_team::Team, constraints::Dict{String,Constraint}
 
     status = termination_status(model)
 
-    model = nothing # Free the model to avoid memory leaks
-
-    # Check the status of the model to see if it is feasible
-    if status == MOI.INFEASIBLE
-        return false
+    # Store the result before freeing the model
+    result = if status == MOI.INFEASIBLE
+        false
     elseif status == MOI.OPTIMAL || status == MOI.FEASIBLE_POINT
-        return true
+        true
     elseif status == MOI.NUMERICAL_ERROR || status == MOI.OTHER_ERROR
         error("Numerical issue detected. The result may be unreliable.")
     else
@@ -1020,5 +1018,5 @@ end
 ###################################### COMMANDS ###################################### 
 @time begin
     uefa_draw_with_rejection(NB_DRAWS)
-    @info "$(n_simul) draws have been successfully performed"
+    @info "$(NB_DRAWS) draws have been successfully performed"
 end
