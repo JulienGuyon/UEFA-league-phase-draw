@@ -4,9 +4,9 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 end
 using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Logging
 ####################################### CONFIG VARIABLES #######################################
-const SOLVER = "SCIP" # Alternative: "Gurobi", "SCIP"
+const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
-const NB_DRAWS = 1
+const NB_DRAWS = 3
 const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -350,13 +350,11 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 		model = direct_model(Gurobi.Optimizer(env))
 	elseif SOLVER == "SCIP"
 		model = Model(env)
-		# set_attribute(model, "display/verblevel", 0)
+		set_attribute(model, "display/verblevel", 0)
 
 	else
 		error("Invalid SOLVER")
 	end
-
-
 	# Match variables
 	# match_vars[i, j] is a binary variable that is equal to 1 if team i plays at home against team j.
 	@variable(model, match_vars[1:36, 1:36], Bin)
@@ -376,19 +374,19 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 	# Constraint for the initially selected admissible match
 	home_idx, away_idx = get_club_index_from_team_name(new_match[1].club), get_club_index_from_team_name(new_match[2].club)
 	selected_team_idx = get_club_index_from_team_name(selected_team.club)
-	@constraint(model, sum(match_vars[selected_team_idx, home_idx]) == 1)
-	@constraint(model, sum(match_vars[away_idx, selected_team_idx]) == 1)
+	@constraint(model, match_vars[selected_team_idx, home_idx] == 1)
+	@constraint(model, match_vars[away_idx, selected_team_idx] == 1)
 
 	# Applying constraints based on previously played matches and nationality constraints
 	for (club, club_constraints) in constraints
 		club_idx = get_club_index_from_team_name(club)
 		for home_club in club_constraints.played_home
 			home_idx = get_club_index_from_team_name(home_club)
-			@constraint(model, sum(match_vars[club_idx, home_idx]) == 1)
+			@constraint(model, match_vars[club_idx, home_idx] == 1)
 		end
 		for away_club in club_constraints.played_ext
 			away_idx = get_club_index_from_team_name(away_club)
-			@constraint(model, sum(match_vars[away_idx, club_idx]) == 1)
+			@constraint(model, match_vars[away_idx, club_idx] == 1)
 		end
 	end
 
@@ -401,7 +399,7 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 				for (l, team_l) in enumerate(pot_k)
 					opponent_idx = ((k - 1) * 9 + l)
 					if team_j.nationality == team_l.nationality && team_idx != opponent_idx
-						@constraint(model, sum(match_vars[team_idx, opponent_idx]) == 0)
+						@constraint(model, match_vars[team_idx, opponent_idx] == 0)
 					end
 				end
 			end
@@ -451,12 +449,12 @@ This function solves the linear programming problem regarding a couple of
 	team i plays at home against team j at time t. The objective function is trivial since
 	we're not maximizing or minimizing a specific goal. 
 """
-function solve_problem(selected_team::Team, constraints::Dict{String, Constraint}, new_match::NTuple{2, Team}, env::Union{typeof(SCIP.Optimizer)})::Bool
+function solve_problem(selected_team::Team, constraints::Dict{String, Constraint}, new_match::NTuple{2, Team})::Bool
 	if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
 		model = direct_model(Gurobi.Optimizer(env))
 	elseif SOLVER == "SCIP"
-		model = Model(env)
-		# set_attribute(model, "display/verblevel", 0)
+		model = Model(SCIP.Optimizer)
+		set_attribute(model, "display/verblevel", 0)
 
 	else
 		error("Invalid SOLVER")
@@ -670,12 +668,12 @@ end
 This function returns for a given team, an opponent group and the state of the draw, all the admissible couple of home, away opponents.
 	In the sense that choosing this couple will not lead to a dead-end
 """
-function true_admissible_matches(selected_team::Team, opponent_group::NTuple{9, Team}, constraints::Dict{String, Constraint}, env::Union{typeof(SCIP.Optimizer)})::Vector{Tuple{Team, Team}}
+function true_admissible_matches(selected_team::Team, opponent_group::NTuple{9, Team}, constraints::Dict{String, Constraint})::Vector{Tuple{Team, Team}}
 	true_matches = Vector{Tuple{Team, Team}}()
 	prefiltered_matches = prefilter_admissible_matches(selected_team, opponent_group, constraints)
 	# For each prefiltered match, we check if it is admissible using the solver
 	for match in prefiltered_matches
-		if solve_problem(selected_team, constraints, match, env)
+		if solve_problem(selected_team, constraints, match)
 			push!(true_matches, match)
 		end
 	end
@@ -727,17 +725,6 @@ function uefa_draw_sequential()
 	println("Début du tirage au sort")
 	start_time = time()
 	matches_list = []
-	# We set up once the SOLVER environment only once 
-	if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
-		env = Gurobi.Env()
-	elseif SOLVER == "SCIP"
-		# Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-		env = SCIP.Optimizer
-
-	else
-		error("Invalid SOLVER. Please chose between 'Gurobi' or 'SCIP'")
-	end
-
 	open("result_sequential_uefa_draw.txt", "w") do file
 		for pot_index in 1:4
 			println("Mélange des indices pour le pot $pot_index")
@@ -774,7 +761,7 @@ function uefa_draw_sequential()
 						error("Index de pot invalide")
 					end
 
-					matches_possible = true_admissible_matches(selected_team, opponent_pot, constraints, env)
+					matches_possible = true_admissible_matches(selected_team, opponent_pot, constraints)
 
 					equipes_possibles = [(match[1].club, match[2].club) for match in matches_possible]
 					selected_match = matches_possible[rand(1:end)]
@@ -837,15 +824,6 @@ function uefa_draw(nb_draw::Int = 1)
 	matches = zeros(Int, 36, 8, nb_draw)
 	@threads for s in 1:nb_draw
 		# We set up once the SOLVER environment once per thread
-		# Gurobi env are not Thread Safe !
-		if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
-			env = Gurobi.Env()
-		elseif SOLVER == "SCIP"
-			# Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-			env = SCIP.Optimizer
-		else
-			error("Invalid SOLVER. Please chose between 'Gurobi' or 'SCIP'")
-		end
 		constraints = initialize_constraints(all_nationalities)
 		for pot_index in 1:4
 			# Access the selected pot from A to D
@@ -874,7 +852,7 @@ function uefa_draw(nb_draw::Int = 1)
 						teams.potD
 					end
 
-					home, away = true_admissible_matches(selected_team, opponent_pot, constraints, env)[rand(1:end)]
+					home, away = true_admissible_matches(selected_team, opponent_pot, constraints)[rand(1:end)]
 
 					matches[get_club_index_from_team_name(selected_team.club), 2*idx_opponent_pot-1, s] = get_club_index_from_team_name(home.club)
 					matches[get_club_index_from_team_name(selected_team.club), 2*idx_opponent_pot, s] = get_club_index_from_team_name(away.club)
@@ -941,16 +919,6 @@ function uefa_draw_randomized(nb_draw::Int)
 	matches = zeros(Int, 36, 8, nb_draw)
 	@threads for s in 1:nb_draw
 		# We set up once the SOLVER environment once per thread
-		# Gurobi env are not Thread Safe !
-		if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
-			env = Gurobi.Env()
-		elseif SOLVER == "SCIP"
-			# Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-			env = SCIP.Optimizer
-
-		else
-			error("Invalid SOLVER. Please chose between 'Gurobi' or 'SCIP'")
-		end
 		constraints = initialize_constraints(all_nationalities)
 		shuffled_order = shuffle(collect(1:36))
 		open("order_selection.txt", "a") do file
@@ -978,7 +946,7 @@ function uefa_draw_randomized(nb_draw::Int)
 				away = nothing
 				try
 					@info "Opponent pot: $idx_opponent_pot"
-					home, away = true_admissible_matches(selected_team, opponent_pot, constraints, env)[rand(1:end)]
+					home, away = true_admissible_matches(selected_team, opponent_pot, constraints)[rand(1:end)]
 					@info "Selected home team: $(home.club)"
 					@info "Selected away team: $(away.club)"
 				catch e
@@ -1042,15 +1010,6 @@ function uefa_draw_with_rejection(nb_draw::Int = 1)
 	uefa_opponents = zeros(Float64, 36, nb_draw)
 	matches = zeros(Int, 36, 8, nb_draw)
 	@threads for s in 1:nb_draw
-		# We set up once the SOLVER environment only once 
-		if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
-			env = Gurobi.Env()
-		elseif SOLVER == "SCIP"
-			# Syntax found here: https://jump.dev/JuMP.jl/stable/manual/models/#Solvers-which-expect-environments
-			env = SCIP.Optimizer
-		else
-			error("Invalid SOLVER. Please chose between 'Gurobi' or 'SCIP'")
-		end
 		constraints = initialize_constraints(all_nationalities)
 		for pot_index in 1:4
 			# Access the selected pot from A to D
@@ -1093,7 +1052,7 @@ function uefa_draw_with_rejection(nb_draw::Int = 1)
 						possible_selected_match = li_prefiltered_matches[rand(1:end)]
 						h, a = possible_selected_match
 
-						if solve_problem(selected_team, constraints, possible_selected_match, env)
+						if solve_problem(selected_team, constraints, possible_selected_match)
 							problem_solved = true
 							home, away = h, a
 							@info "Selected match for $(selected_team.club): $(home.club) vs $(away.club)"
