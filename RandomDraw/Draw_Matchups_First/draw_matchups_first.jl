@@ -6,7 +6,7 @@ using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Loggi
 ####################################### CONFIG VARIABLES #######################################
 const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
-const NB_DRAWS = 3
+const NB_DRAWS = 10
 const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -347,6 +347,7 @@ We also wanted to check the proportion of admissible matches that are actually a
 """
 function solve_problem_without_day_constraints(selected_team::Team, constraints::Dict{String, Constraint}, new_match::NTuple{2, Team})::Bool
 	if SOLVER == "Gurobi"
+		# We use direct_model and not model to pass env as parameter
 		model = direct_model(Gurobi.Optimizer(env))
 	elseif SOLVER == "SCIP"
 		model = Model(env)
@@ -575,7 +576,6 @@ end
 """
 This function prefilters admissible matches for a selected team and an opponent group for a given state of the draw.
 It returns only the matches that are likely to be admissible.
-This is used in the uefa draw with the rejection method.
 We want to reduce the number of calls to the solver by checking direct rules violations
 """
 function prefilter_admissible_matches(selected_team::Team, opponent_group::NTuple{9, Team}, constraints::Dict{String, Constraint})::Vector{Tuple{Team, Team}}
@@ -1027,8 +1027,8 @@ function uefa_draw_with_rejection(nb_draw::Int = 1)
 			indices = shuffle!(collect(1:9))
 			for i in indices
 				selected_team = pot[i]
-
-				for idx_opponent_pot in 1:4
+				# Match against each opponent pot already selected below
+				for idx_opponent_pot in pot_index:4
 					opponent_pot = if idx_opponent_pot == 1
 						teams.potA
 					elseif idx_opponent_pot == 2
@@ -1193,6 +1193,6 @@ end
 ###################################### COMMANDS ###################################### 
 @time begin
 	# uefa_draw_with_rejection(NB_DRAWS)
-	uefa_draw_without_day_constraints(NB_DRAWS)
+	uefa_draw_with_rejection(NB_DRAWS)
 	@info "$(NB_DRAWS) draws have been successfully performed"
 end
