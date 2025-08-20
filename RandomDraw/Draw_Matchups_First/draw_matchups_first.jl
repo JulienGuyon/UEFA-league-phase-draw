@@ -663,7 +663,6 @@ function prefilter_admissible_matches(selected_team::Team, opponent_group::NTupl
 	return prefiltered_matches
 end
 
-# TODO: Add type Gurobi.Env
 """
 This function returns for a given team, an opponent group and the state of the draw, all the admissible couple of home, away opponents.
 	In the sense that choosing this couple will not lead to a dead-end

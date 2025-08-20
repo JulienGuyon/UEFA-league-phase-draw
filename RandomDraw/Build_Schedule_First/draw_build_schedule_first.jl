@@ -8,13 +8,13 @@ using JuMP
 if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 	using Gurobi
 end
-using SCIP, MathOptInterface, Statistics, Random, Logging
+using MathOptInterface, Statistics, Random, Logging
 using Base.Threads
 
 ####################################### DRAW PARAMETERS #######################################
 const SOLVER::String = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE", "CHAMPIONS_LEAGUE"
-const NB_DRAWS::Int = 1
+const NB_DRAWS::Int = 5
 const IS_RANDOM::Bool = true
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -26,6 +26,13 @@ const nb_teams::Int = 36  # number of teams (= nb_pots*nb_teams_per_pot)
 # new_env() = SOLVER == "Gurobi" ? Gurobi.Env("OutputFlag" => 0, "LogToConsole" => 0) :
 #             SOLVER == "SCIP" ? SCIP.Optimizer() :
 #             error("Unknown solver")
+
+env = SOLVER == "Gurobi" ? Gurobi.Env(
+	Dict{String, Any}(
+		"OutputFlag" => 0,    # Suppress console output
+		"LogToConsole" => 0,   # No logging to console
+	),
+) : error("Unknown solver")
 
 """
 Matrix of shape 36x8 representing the 8 opponents of each team in the draw
@@ -240,7 +247,7 @@ function is_solvable(
 	already_filled::Vector{Int},
 )::Bool
 	if SOLVER == "Gurobi"
-		model = Model(Gurobi.Optimizer)
+		model = direct_model(Gurobi.Optimizer(env))
 	elseif SOLVER == "SCIP"
 		model = Model(SCIP.Optimizer)
 		# set_attribute(model, "display/verblevel", 0)
@@ -380,6 +387,7 @@ function admissible_teams(
 	return possible_teams
 end
 
+
 """
 Performs the draw for the method Build Schedule First.
 We select iteratively a placeholder and get the list of possible teams for this placeholder in the sense that it can lead to a solution.
@@ -449,6 +457,76 @@ function draw(
 end
 
 
+
+"""
+Performs the draw for the method Build Schedule First with the rejection method.
+We select iteratively a placeholder. For each placeholders we draw randomly one possible team.
+If he is admissible in the sense that it does not lead to a dead end, we accept this solution.
+By choosing uniformly admissible teams, we ensure uniform distribution among possible assignments.
+"""
+function draw_with_rejection(
+	nationalities::Vector{Vector{Int}},
+	opponents::Vector{Vector{Int}},
+	team_nationalities::Vector{Int},
+	nb_pots::Int,
+	nb_teams_per_pot::Int,
+	nb_teams::Int,
+	is_random::Bool = true,
+)::Vector{Int}
+	@assert nb_teams == nb_pots * nb_teams_per_pot
+	already_filled = zeros(Int, nb_teams)
+
+	# Determine order of placeholders
+	placeholder_order = is_random ? shuffle!(collect(1:nb_teams)) : collect(1:nb_teams)
+
+	# Open log file for this draw (append mode)
+	open("draw_logs.txt", "a") do log
+		write(log, "\n=== New draw ===\n")
+		write(log, "Placeholder order: $(placeholder_order)\n")
+	end
+
+	# Iterate through each placeholder
+	for placeholder in placeholder_order
+		# Log selected placeholder
+		open("draw_logs.txt", "a") do log
+			write(log, "Selected placeholder: $placeholder\n")
+		end
+
+		possible_teams = Int[]
+		placeholder_pot = div(placeholder - 1, nb_teams_per_pot) + 1
+		pot_start = (placeholder_pot - 1) * nb_teams_per_pot + 1
+		pot_end = placeholder_pot * nb_teams_per_pot
+		possible_teams = collect(pot_start:pot_end)
+		# Shuffle possible_teams
+		shuffle!(possible_teams)
+
+		selected_team = nothing
+		for team in possible_teams
+			if !(team in already_filled)
+				if is_solvable(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, team, placeholder, already_filled)
+					selected_team = team
+				end
+			end
+			if selected_team !== nothing
+				break
+			end
+		end
+
+		# Update constraints
+		already_filled[placeholder] = selected_team
+
+		# Log selected team
+		open("draw_logs.txt", "a") do log
+			write(log, "Assigned team $selected_team to placeholder $placeholder\n")
+			write(log, "Current state of assignments: $(already_filled)\n")
+		end
+	end
+
+	return already_filled
+end
+
+
+
 """
 Performs successive draws for the method Build Schedule First.
 The results are written in txt files.
@@ -465,6 +543,7 @@ function tirage_au_sort(
 	nb_teams_per_pot::Int,
 	nb_teams::Int,
 	is_random::Bool = true,
+	with_rejection::Bool = false,
 )::Int
 	@assert nb_teams == nb_pots * nb_teams_per_pot
 
@@ -485,7 +564,12 @@ function tirage_au_sort(
 			write(file, "Draw $i\n")
 		end
 
-		draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
+		if with_rejection
+			draw_i = draw_with_rejection(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
+		else
+			# Use the standard draw method
+			draw_i = draw(nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, is_random)
+		end
 
 		for placeholder in 1:nb_teams
 			team = draw_i[placeholder]
@@ -528,5 +612,5 @@ end
 println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
-	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, true)
+	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, false, true)
 end
