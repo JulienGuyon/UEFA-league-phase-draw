@@ -16,6 +16,7 @@ const SOLVER::String = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE::String = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE", "CHAMPIONS_LEAGUE"
 const NB_DRAWS::Int = 5
 const IS_RANDOM::Bool = true
+const WITH_REJECTION:Bool = true
 ####################################### GLOBAL VARIABLES #######################################
 
 const nb_pots::Int = 4 # number of pots
@@ -612,5 +613,5 @@ end
 println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
-	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, true, true)
+	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, IS_RANDOM, WITH_REJECTION)
 end
