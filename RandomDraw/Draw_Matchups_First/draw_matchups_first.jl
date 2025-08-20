@@ -6,7 +6,7 @@ using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Loggi
 ####################################### CONFIG VARIABLES #######################################
 const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
-const NB_DRAWS = 10
+const NB_DRAWS = 1
 const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -348,7 +348,7 @@ We also wanted to check the proportion of admissible matches that are actually a
 function solve_problem_without_day_constraints(selected_team::Team, constraints::Dict{String, Constraint}, new_match::NTuple{2, Team})::Bool
 	if SOLVER == "Gurobi"
 		# We use direct_model and not model to pass env as parameter
-		model = direct_model(Gurobi.Optimizer(env))
+		model = Model(Gurobi.Optimizer())
 	elseif SOLVER == "SCIP"
 		model = Model(env)
 		set_attribute(model, "display/verblevel", 0)
@@ -438,7 +438,7 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 end
 
 
-# TODO: add type Gurobi.Env
+# TODO: use Gurobi env for 
 """
 This function solves the linear programming problem regarding a couple of 
 	possible opponents for a selected team and and the current state of the constraints.
@@ -452,7 +452,7 @@ This function solves the linear programming problem regarding a couple of
 """
 function solve_problem(selected_team::Team, constraints::Dict{String, Constraint}, new_match::NTuple{2, Team})::Bool
 	if SOLVER == "Gurobi" && (isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
-		model = direct_model(Gurobi.Optimizer(env))
+		model = Model(Gurobi.Optimizer())
 	elseif SOLVER == "SCIP"
 		model = Model(SCIP.Optimizer)
 		set_attribute(model, "display/verblevel", 0)
