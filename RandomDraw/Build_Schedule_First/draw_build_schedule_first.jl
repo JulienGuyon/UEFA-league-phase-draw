@@ -612,5 +612,5 @@ end
 println("Nombre de threads utilisés : ", Threads.nthreads())
 
 @time begin
-	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, false, true)
+	tirage_au_sort(NB_DRAWS, teams, nationalities, opponents, team_nationalities, nb_pots, nb_teams_per_pot, nb_teams, true, true)
 end
