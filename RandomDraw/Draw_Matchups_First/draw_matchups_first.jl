@@ -4,7 +4,7 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 end
 using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Logging
 ####################################### CONFIG VARIABLES #######################################
-const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
+const SOLVER = "SCIP" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
 const NB_DRAWS = 1
 const DEBUG = false
@@ -438,7 +438,6 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 end
 
 
-# TODO: use Gurobi env for 
 """
 This function solves the linear programming problem regarding a couple of 
 	possible opponents for a selected team and and the current state of the constraints.
@@ -840,7 +839,7 @@ function uefa_draw(nb_draw::Int = 1)
 			for i in indices
 				selected_team = pot[i]
 
-				for idx_opponent_pot in 1:4
+				for idx_opponent_pot in pot_index:4
 					opponent_pot = if idx_opponent_pot == 1
 						teams.potA
 					elseif idx_opponent_pot == 2
@@ -1192,6 +1191,6 @@ end
 ###################################### COMMANDS ###################################### 
 @time begin
 	# uefa_draw_with_rejection(NB_DRAWS)
-	uefa_draw_with_rejection(NB_DRAWS)
+	uefa_draw(NB_DRAWS)
 	@info "$(NB_DRAWS) draws have been successfully performed"
 end
