@@ -1193,6 +1193,6 @@ end
 ###################################### COMMANDS ###################################### 
 @time begin
 	# uefa_draw_with_rejection(NB_DRAWS)
-	uefa_draw_without_day_constraints(NB_DRAWS)
+	uefa_draw(NB_DRAWS)
 	@info "$(NB_DRAWS) draws have been successfully performed"
 end
