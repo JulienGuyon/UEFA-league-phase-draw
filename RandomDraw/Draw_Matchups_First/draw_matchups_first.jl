@@ -393,14 +393,15 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 
 	# Nationality constraints
 	# Match cannot happen if the teams are from the same nationality
-	for (i, pot_i) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
-		for (j, team_j) in enumerate(pot_i)
-			team_idx = (i - 1) * 9 + j
-			for (k, pot_k) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
-				for (l, team_l) in enumerate(pot_k)
-					opponent_idx = ((k - 1) * 9 + l)
-					if team_j.nationality == team_l.nationality && team_idx != opponent_idx
-						@constraint(model, match_vars[team_idx, opponent_idx] == 0)
+	for (pot_i_index, pot_i) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
+		for (team_i_pot_index, team_i) in enumerate(pot_i)
+			team_i_idx = (pot_i_index - 1) * 9 + team_i_pot_index
+			for (pot_j_index, pot_j) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
+				for (team_j_pot_index, team_j) in enumerate(pot_j)
+					team_j_idx = ((pot_j_index - 1) * 9 + team_j_pot_index)
+					if team_i.nationality == team_j.nationality && team_i_idx != team_j_idx
+						@constraint(model, match_vars[team_i_idx, team_j_idx] == 0)
+						@constraint(model, match_vars[team_j_idx, team_i_idx] == 0)
 					end
 				end
 			end
@@ -409,11 +410,11 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 
 	# Limit the number of matches against the same nationality to 2
 	for nationality in all_nationalities
-		for i in 1:36
+		for team_index in 1:36
 			@constraint(model, sum(
-				match_vars[i, j] + match_vars[j, i]
-				for j in 1:36
-				if get_team_nationality(j) == nationality
+				match_vars[team_index, opponent_team_index] + match_vars[opponent_team_index, team_index]
+				for opponent_team_index in 1:36
+				if get_team_nationality(opponent_team_index) == nationality
 			) <= 2)
 		end
 	end
@@ -499,14 +500,15 @@ function solve_problem(selected_team::Team, constraints::Dict{String, Constraint
 
 	# Nationality constraints
 	# Match cannot happen if the teams are from the same nationality
-	for (i, pot_i) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
-		for (j, team_j) in enumerate(pot_i)
-			team_idx = (i - 1) * 9 + j
-			for (k, pot_k) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
-				for (l, team_l) in enumerate(pot_k)
-					opponent_idx = ((k - 1) * 9 + l)
-					if team_j.nationality == team_l.nationality && team_idx != opponent_idx
-						@constraint(model, sum(match_vars[team_idx, opponent_idx, t] for t in 1:T) == 0)
+	for (pot_i_index, pot_i) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
+		for (team_i_pot_index, team_i) in enumerate(pot_i)
+			team_i_idx = (pot_i_index - 1) * 9 + team_i_pot_index
+			for (pot_j_index, pot_j) in enumerate((teams.potA, teams.potB, teams.potC, teams.potD))
+				for (team_j_pot_index, team_j) in enumerate(pot_j)
+					team_j_index = ((pot_j_index - 1) * 9 + team_j_pot_index)
+					if team_i.nationality == team_j.nationality && team_i_idx != team_j_index
+						@constraint(model, sum(match_vars[team_i_idx, team_j_index, t] for t in 1:T) == 0)
+						@constraint(model, sum(match_vars[team_j_index, team_i_idx, t] for t in 1:T) == 0)
 					end
 				end
 			end
@@ -1191,6 +1193,6 @@ end
 ###################################### COMMANDS ###################################### 
 @time begin
 	# uefa_draw_with_rejection(NB_DRAWS)
-	uefa_draw(NB_DRAWS)
+	uefa_draw_without_day_constraints(NB_DRAWS)
 	@info "$(NB_DRAWS) draws have been successfully performed"
 end
