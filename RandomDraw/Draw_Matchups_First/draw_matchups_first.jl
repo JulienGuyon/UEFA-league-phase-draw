@@ -350,7 +350,7 @@ function solve_problem_without_day_constraints(selected_team::Team, constraints:
 		# We use direct_model and not model to pass env as parameter
 		model = Model(Gurobi.Optimizer())
 	elseif SOLVER == "SCIP"
-		model = Model(env)
+		model = Model(SCIP.Optimizer)
 		set_attribute(model, "display/verblevel", 0)
 
 	else
