@@ -1,0 +1,64 @@
+name: Build React Site using Vite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Add this permissions block to grant write access
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: true # Changed to true so we keep credentials
+          fetch-depth: 0
+
+      # Set up Node.js (adjust node-version as needed)
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: RandomDrawSite/package-lock.json
+
+      # Install dependencies
+      - name: Install dependencies
+        run: cd RandomDrawSite && npm install
+
+      # Build the project using the Vite build script
+      - name: Build project
+        run: cd RandomDrawSite && npm run build
+
+      # Clean the /docs folder and copy the build output from /dist to /docs
+      - name: Update /docs folder with build output
+        run: |
+          rm -rf docs/*
+          cp -r RandomDrawSite/dist/* docs/
+
+      # Configure Git identity
+      - name: Configure Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      # Commit changes
+      - name: Commit changes
+        run: |
+          git add docs/
+          git commit -m "Update docs with latest build" || echo "No changes to commit"
+
+      # Push changes
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
