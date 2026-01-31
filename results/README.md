@@ -18,5 +18,3 @@ A typical filename encodes:
 - the competition,
 - the draw algorithm,
 - and whether a randomized variant is used.
-
-variants.
