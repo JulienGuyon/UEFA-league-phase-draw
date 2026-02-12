@@ -338,7 +338,6 @@ function silence_output(f::Function)
 	end
 end
 
-# TODO: Change type of env to `Union{Gurobi.Env, typeof(SCIP.Optimizer)}`
 """
 We solve the same problem as `solve_problem` but without the day constraints.
 This is used to evaluate the impact of the day constraints on the admissibility of the matches.
@@ -686,7 +685,6 @@ function true_admissible_matches(selected_team::Team, opponent_group::NTuple{9, 
 	return true_matches
 end
 
-# Add Gurobi.Env, 
 """
 variant of the function true_admissible_matches that does not use days constraints.
 """
@@ -1000,7 +998,7 @@ end
 
 
 """
-	uefa_draw_with_rejection(nb_draw::Int=1)
+uefa_draw_with_rejection(nb_draw::Int=1)
 Performs a specified number of UEFA random draws using a rejection method. After pre-filtering
 the teams, a pre-eligible team is randomly selected. If selecting this team does not lead to a 
 deadlock, the team is chosen and the draw continues with the remaining steps.
@@ -1212,22 +1210,142 @@ end
 
 
 """
-This function performs multiple draws without day constraints and checks the percentage of uncolorable draws.
+Check if a given draw (one slice of matches[:,:,d]) 
+is feasible when adding day constraints.
+"""
+function check_draw_feasibility(matches_draw::Matrix{Int})::Bool
+
+    if SOLVER == "Gurobi"
+        model = Model(Gurobi.Optimizer())
+    elseif SOLVER == "SCIP"
+        model = Model(SCIP.Optimizer)
+        set_attribute(model, "display/verblevel", 0)
+    else
+        error("Invalid SOLVER")
+    end
+
+    T = 8  # 8 matchdays
+
+    @variable(model, match_vars[1:36, 1:36, 1:T], Bin)
+    @objective(model, Max, 0)
+
+    # -----------------------------------
+    # Basic constraints
+    # -----------------------------------
+
+    @constraint(model, [i=1:36], sum(match_vars[i,i,t] for t in 1:T) == 0)
+
+    @constraint(model, [i=1:36, j=1:36; i!=j],
+        sum(match_vars[i,j,t] + match_vars[j,i,t] for t in 1:T) <= 1
+    )
+
+    # One match per matchday
+    @constraint(model, [i=1:36, t=1:T],
+        sum(match_vars[i,j,t] + match_vars[j,i,t] for j in 1:36) == 1
+    )
+
+    # -----------------------------------
+    # Pot constraints
+    # -----------------------------------
+
+    for pot_start in 1:9:28
+        @constraint(model, [i=1:36],
+            sum(match_vars[i,j,t] for t in 1:T, j in pot_start:(pot_start+8)) == 1
+        )
+        @constraint(model, [i=1:36],
+            sum(match_vars[j,i,t] for t in 1:T, j in pot_start:(pot_start+8)) == 1
+        )
+    end
+
+    # -----------------------------------
+    # Fix matches from draw
+    # -----------------------------------
+
+    for team in 1:36
+        for k in 1:2:8
+            opponent = matches_draw[team, k]
+            if opponent != 0
+                @constraint(model,
+                    sum(match_vars[team, opponent, t] for t in 1:T) == 1
+                )
+            end
+        end
+
+        for k in 2:2:8
+            opponent = matches_draw[team, k]
+            if opponent != 0
+                @constraint(model,
+                    sum(match_vars[opponent, team, t] for t in 1:T) == 1
+                )
+            end
+        end
+    end
+
+    # -----------------------------------
+    # Nationality constraints
+    # -----------------------------------
+
+    for i in 1:36, j in 1:36
+        if i != j && get_team_nationality(i) == get_team_nationality(j)
+            @constraint(model,
+                sum(match_vars[i,j,t] for t in 1:T) == 0
+            )
+            @constraint(model,
+                sum(match_vars[j,i,t] for t in 1:T) == 0
+            )
+        end
+    end
+
+    for nationality in all_nationalities
+        for i in 1:36
+            @constraint(model,
+                sum(match_vars[i,j,t] + match_vars[j,i,t]
+                    for t in 1:T
+                    for j in 1:36
+                    if get_team_nationality(j) == nationality
+                ) <= 2
+            )
+        end
+    end
+
+    # -----------------------------------
+    # Solve
+    # -----------------------------------
+
+    optimize!(model)
+    status = termination_status(model)
+
+    return status == MOI.OPTIMAL || status == MOI.FEASIBLE_POINT
+end
+
+
+"""
+Compute percentage of draws that are infeasible when adding day constraints.
 """
 function compute_percentage_uncolorable(nb_draws::Int)
-	uncolorable_cout=0
-	for draw_index in 1:nb_draws
-		matches = uefa_draw_without_day_constraints(nb_draws, false, true)
 
+    matches_all = uefa_draw_without_day_constraints(nb_draws, false, true)
 
-		
-	
+    uncolorable_count = 0
 
+    for d in 1:nb_draws
+        matches_draw = matches_all[:, :, d]
 
+        feasible = check_draw_feasibility(matches_draw)
 
-	end
+        if !feasible
+            uncolorable_count += 1
+        end
+    end
 
+    percentage = 100 * uncolorable_count / nb_draws
+
+    println("Uncolorable draws: $uncolorable_count / $nb_draws")
+    println("Percentage: $percentage %")
+
+    return percentage
 end
+
 
 
 
