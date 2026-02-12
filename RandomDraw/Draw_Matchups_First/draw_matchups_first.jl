@@ -1110,11 +1110,11 @@ end
 """
 This variant of the uefa draw does not use the day constraints.
 """
-function uefa_draw_without_day_constraints(nb_draw::Int = 1)
+function uefa_draw_without_day_constraints(nb_draw::Int = 1, write_results::Bool=true, return_matches::Bool=false)
 	elo_opponents = zeros(Float64, 36, nb_draw)
 	uefa_opponents = zeros(Float64, 36, nb_draw)
 	matches = zeros(Int, 36, 8, nb_draw)
-	@threads for s in 1:nb_draw
+	for s in 1:nb_draw
 		constraints = initialize_constraints(all_nationalities)
 		for pot_index in 1:4
 			# Access the selected pot from A to D
@@ -1158,36 +1158,77 @@ function uefa_draw_without_day_constraints(nb_draw::Int = 1)
 		end
 	end
 
-	open("draws_draw_matchups_first_elo_bis.txt", "a") do file
-		for i in 1:nb_draw
-			row = join(elo_opponents[:, i], " ")
-			write(file, row * "\n")
-		end
-	end
-
-	open("draws_draw_matchups_first_uefa_bis.txt", "a") do file
-		for i in 1:nb_draw
-			row = join(uefa_opponents[:, i], " ")
-			write(file, row * "\n")
-		end
-	end
-
-	open("matches_draw_matchups_first_bis.txt", "a") do file
-		for i in 1:nb_draw
-			for team in 1:36
-				home_matches = [(team, matches[team, k, i]) for k in 1:2:8]
-				home_row = join(home_matches, " ")
-				write(file, home_row * " ")
-				away_matches = [(matches[team, k, i], team) for k in 2:2:8]
-				away_row = join(away_matches, " ")
-				write(file, away_row * " ")
+	if write_results == true
+		open("draws_draw_matchups_first_elo_bis.txt", "a") do file
+			for i in 1:nb_draw
+				row = join(elo_opponents[:, i], " ")
+				write(file, row * "\n")
 			end
-			write(file, "\n")
+		end
+
+		open("draws_draw_matchups_first_uefa_bis.txt", "a") do file
+			for i in 1:nb_draw
+				row = join(uefa_opponents[:, i], " ")
+				write(file, row * "\n")
+			end
+		end
+
+		open("matches_draw_matchups_first_bis.txt", "a") do file
+			for i in 1:nb_draw
+				for team in 1:36
+					home_matches = [(team, matches[team, k, i]) for k in 1:2:8]
+					home_row = join(home_matches, " ")
+					write(file, home_row * " ")
+					away_matches = [(matches[team, k, i], team) for k in 2:2:8]
+					away_row = join(away_matches, " ")
+					write(file, away_row * " ")
+				end
+				write(file, "\n")
+			end
+		end
+	end 
+
+	if return_matches == true return matches
+	return nothing
+end
+
+
+
+"""
+This functions takes as input the result of multiple draws. It checks that all the contraints are respected including the day contraint.
+It returns true if all the constraints are respected and false otherwise. 
+"""
+function validate_matches(matches)
+	# Check if all teams have exactly 4 matches
+	for team in 1:36
+		home_count = sum(matches[team, :, :] .!= 0)
+		away_count = sum(matches[:, team, :] .!= 0)
+		if home_count != 4 || away_count != 4
+			return false
 		end
 	end
-
-	return 0
+	return true
 end
+
+
+"""
+This function performs multiple draws without day constraints and checks the percentage of uncolorable draws.
+"""
+function compute_percentage_uncolorable(nb_draws::Int)
+	uncolorable_cout=0
+	for draw_index in 1:nb_draws
+		matches = uefa_draw_without_day_constraints(nb_draws, false, true)
+
+
+		
+	
+
+
+
+	end
+
+end
+
 
 
 ###################################### COMMANDS ###################################### 
