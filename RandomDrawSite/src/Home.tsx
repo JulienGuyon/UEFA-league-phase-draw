@@ -45,7 +45,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Hero Section with gradient background */}
-        <section className="relative z-10 text-center mb-16 rounded-3xl overflow-hidden bg-gradient-to-r from-[#0e1e5b] to-[#0a3da8] p-8 shadow-xl">
+        <section className="relative z-10 text-center mb-16 rounded-3xl overflow-hidden bg-[#0e1e5b] p-8 shadow-xl">
           <div className="absolute inset-0 bg-[url('/images/champions-league-pattern.png')] opacity-10 mix-blend-overlay"></div>
           <h1 className="text-3xl md:text-5xl font-extrabold mb-4 mt-4 text-white drop-shadow-md">
             Drawing League Phase Matchups in the <br />
