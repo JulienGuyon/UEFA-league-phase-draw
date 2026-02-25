@@ -28,24 +28,20 @@ export function updateConstraints(
   home: Team,
   away: Team,
 ): Constraints {
-  // Guard against duplicate: if this exact match is already recorded, return as-is
-  if (constraints.playedHome[home.id].includes(away.id)) {
-    console.warn(
-      `updateConstraints: duplicate match detected — ${home.name} already hosts ${away.name}`,
-    );
-    return constraints;
-  }
-
   const newConstraints: Constraints = structuredClone(constraints);
 
-  newConstraints.playedHome[home.id].push(away.id);
-  newConstraints.playedAway[away.id].push(home.id);
+  // Guard against duplicate: if this exact match is already recorded, do not re-add it
+  if (!constraints.playedHome[home.id].includes(away.id)) {
+    newConstraints.playedHome[home.id].push(away.id);
+    newConstraints.nationalities[home.id][away.country] =
+      (newConstraints.nationalities[home.id][away.country] ?? 0) + 1;
+  }
 
-  newConstraints.nationalities[home.id][away.country] =
-    (newConstraints.nationalities[home.id][away.country] ?? 0) + 1;
-
-  newConstraints.nationalities[away.id][home.country] =
-    (newConstraints.nationalities[away.id][home.country] ?? 0) + 1;
+  if (!constraints.playedAway[away.id].includes(home.id)) {
+    newConstraints.playedAway[away.id].push(home.id);
+    newConstraints.nationalities[away.id][home.country] =
+      (newConstraints.nationalities[away.id][home.country] ?? 0) + 1;
+  }
 
   return newConstraints;
 }
