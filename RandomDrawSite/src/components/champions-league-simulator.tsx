@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { POTS, TEAMS } from "../lib/data";
-import type { Team, Match, Constraints } from "../lib/types";
+import type { Team, Constraints } from "../lib/types";
 import {
   initializeConstraints,
   updateConstraints,
@@ -22,33 +22,43 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type Phase = "idle" | "team-selected" | "showing-pot" | "done";
+// The draw proceeds through these phases for each (team, pot) pair:
+//
+//   idle
+//     ↓ [Start Draw] — pick first team, set drawIndex=0, potIndex=0
+//   team-selected
+//     ↓ [Find Admissible] — compute preadmissible with CURRENT constraints, store in state
+//   showing-admissible
+//     ↓ [Draw Match] — run solver on admissible list, pick a match, UPDATE constraints
+//   showing-result
+//     ↓ [Next Pot]  — if potIndex < 3: potIndex++, go back to team-selected
+//        [Next Team] — if potIndex == 3: drawIndex++, potIndex=0, go back to team-selected
+//        [Finish]   — if no more teams: done
+//   done
+//
+// Constraints are ONLY updated in the showing-admissible → showing-result transition,
+// immediately after a match is confirmed by the solver. Pre-admissible computation
+// always reads from the constraints state at the moment the button is pressed.
 
-interface PotOpponents {
-  home: Team | null;
-  away: Team | null;
-  flash: boolean;
-}
-
-interface TeamDrawResult {
-  team: Team;
-  pots: [PotOpponents, PotOpponents, PotOpponents, PotOpponents];
-}
+type Phase =
+  | "idle"
+  | "team-selected" // team is chosen, waiting to compute admissible
+  | "showing-admissible" // admissible list computed and displayed, waiting to draw
+  | "showing-result" // match drawn, constraints updated, result displayed
+  | "done";
 
 interface SimulatorState {
   phase: Phase;
   drawOrder: Team[];
-  drawIndex: number;
-  currentPotIndex: number;
-  admissible: { home: Team; away: Team }[];
-  constraints: Constraints;
-  results: TeamDrawResult[];
-  matches: Match[];
+  drawIndex: number; // index into drawOrder for the current team
+  currentPotIndex: number; // 0–3, which opponent pot we're drawing from
+  admissible: { home: Team; away: Team }[]; // valid pairs for current (team, pot)
+  constraints: Constraints; // single source of truth for all drawn matches
   isLoading: boolean;
   solverProgress: { tested: number; total: number } | null;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const POT_COLORS = [
   {
@@ -88,6 +98,8 @@ interface LogEntry {
   ts: string;
 }
 
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -106,36 +118,45 @@ function buildDrawOrder(): Team[] {
   ];
 }
 
-function emptyPotOpponents(): PotOpponents {
-  return { home: null, away: null, flash: false };
-}
-
-function initResults(drawOrder: Team[]): TeamDrawResult[] {
-  return drawOrder.map((team) => ({
-    team,
-    pots: [
-      emptyPotOpponents(),
-      emptyPotOpponents(),
-      emptyPotOpponents(),
-      emptyPotOpponents(),
-    ],
-  }));
-}
-
 function initialState(): SimulatorState {
-  const drawOrder = buildDrawOrder();
   return {
     phase: "idle",
-    drawOrder,
+    drawOrder: buildDrawOrder(),
     drawIndex: -1,
     currentPotIndex: 0,
     admissible: [],
     constraints: initializeConstraints(),
-    results: initResults(drawOrder),
-    matches: [],
     isLoading: false,
     solverProgress: null,
   };
+}
+
+// Reads who visits `teamId` from pot `potIndex` (team is HOME)
+function getHomeOpponent(
+  teamId: number,
+  potIndex: number,
+  c: Constraints,
+): Team | null {
+  const id = (c.playedHome[teamId] ?? []).find(
+    (id) => TEAMS[id]?.pot === potIndex,
+  );
+  return id !== undefined ? (TEAMS[id] ?? null) : null;
+}
+
+// Reads who hosts `teamId` from pot `potIndex` (team is AWAY)
+function getAwayOpponent(
+  teamId: number,
+  potIndex: number,
+  c: Constraints,
+): Team | null {
+  const id = (c.playedAway[teamId] ?? []).find(
+    (id) => TEAMS[id]?.pot === potIndex,
+  );
+  return id !== undefined ? (TEAMS[id] ?? null) : null;
+}
+
+function countMatches(c: Constraints): number {
+  return Object.values(c.playedHome).reduce((acc, arr) => acc + arr.length, 0);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -154,7 +175,8 @@ function PotBadge({ potIndex, small }: { potIndex: number; small?: boolean }) {
 function TeamCard({ team, active }: { team: Team; active?: boolean }) {
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300 ${active ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"}`}
+      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300
+      ${active ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"}`}
     >
       <PotBadge potIndex={team.pot} />
       <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
@@ -196,14 +218,15 @@ function AdmissibleList({
   );
 }
 
+// Reads all results directly from constraints — no separate results state
 function ResultTable({
-  results,
+  constraints,
   activePot,
 }: {
-  results: TeamDrawResult[];
+  constraints: Constraints;
   activePot: number;
 }) {
-  const potTeams = results.filter((r) => r.team.pot === activePot);
+  const potTeams = POTS[activePot as keyof typeof POTS];
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
       <table className="w-full text-xs border-collapse">
@@ -231,14 +254,14 @@ function ResultTable({
                 <th
                   key={`${p}-h`}
                   className="px-2 py-1 text-center text-[10px] text-slate-400 font-medium"
-                  title="Opponent who visits this team (this team is HOME)"
+                  title="Opponent who visits this team"
                 >
                   <Home className="h-3 w-3 inline" />
                 </th>
                 <th
                   key={`${p}-a`}
                   className="px-2 py-1 text-center text-[10px] text-slate-400 font-medium"
-                  title="Opponent who hosts this team (this team is AWAY)"
+                  title="Opponent who hosts this team"
                 >
                   <Plane className="h-3 w-3 inline" />
                 </th>
@@ -247,7 +270,7 @@ function ResultTable({
           </tr>
         </thead>
         <tbody>
-          {potTeams.map(({ team, pots }) => (
+          {potTeams.map((team) => (
             <tr
               key={team.id}
               className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
@@ -255,34 +278,32 @@ function ResultTable({
               <td className="px-3 py-1.5 font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[7rem]">
                 {team.name}
               </td>
-              {pots.map((po, pi) => (
-                <>
-                  <td
-                    key={`${pi}-h`}
-                    className={`px-2 py-1.5 text-center transition-colors duration-500 ${po.flash ? "bg-green-100 dark:bg-green-900/40" : ""}`}
-                  >
-                    {po.home ? (
-                      <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
-                        {po.home.name}
-                      </span>
-                    ) : (
-                      <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
-                    )}
-                  </td>
-                  <td
-                    key={`${pi}-a`}
-                    className={`px-2 py-1.5 text-center transition-colors duration-500 ${po.flash ? "bg-green-100 dark:bg-green-900/40" : ""}`}
-                  >
-                    {po.away ? (
-                      <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
-                        {po.away.name}
-                      </span>
-                    ) : (
-                      <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
-                    )}
-                  </td>
-                </>
-              ))}
+              {[0, 1, 2, 3].map((pi) => {
+                const h = getHomeOpponent(team.id, pi, constraints);
+                const a = getAwayOpponent(team.id, pi, constraints);
+                return (
+                  <>
+                    <td key={`${pi}-h`} className="px-2 py-1.5 text-center">
+                      {h ? (
+                        <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
+                          {h.name}
+                        </span>
+                      ) : (
+                        <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
+                      )}
+                    </td>
+                    <td key={`${pi}-a`} className="px-2 py-1.5 text-center">
+                      {a ? (
+                        <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
+                          {a.name}
+                        </span>
+                      ) : (
+                        <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
+                      )}
+                    </td>
+                  </>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -292,24 +313,16 @@ function ResultTable({
 }
 
 function DebugPanel({ logs, frozen }: { logs: LogEntry[]; frozen: boolean }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const colors: Record<LogLevel, string> = {
     info: "text-slate-400",
     success: "text-green-400",
     warn: "text-yellow-400",
     solver: "text-sky-400",
   };
-  const containerRef = useRef<HTMLDivElement>(null);
-  useState(() => {
-    containerRef.current?.scrollTo({
-      top: containerRef.current.scrollHeight,
-      behavior: "smooth",
-    });
-  });
-
   return (
     <div
-      className={`rounded-xl border overflow-hidden ${frozen ? "border-yellow-500/50 bg-slate-950" : "border-slate-200 dark:border-slate-700 bg-slate-950"}`}
+      className={`rounded-xl border overflow-hidden bg-slate-950 ${frozen ? "border-yellow-500/50" : "border-slate-200 dark:border-slate-700"}`}
     >
       <div className="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
         <Terminal className="h-3.5 w-3.5 text-slate-500" />
@@ -341,7 +354,6 @@ function DebugPanel({ logs, frozen }: { logs: LogEntry[]; frozen: boolean }) {
             </div>
           ))
         )}
-        <div ref={bottomRef} />
       </div>
     </div>
   );
@@ -353,10 +365,7 @@ export function ChampionsLeagueSimulator() {
   const [state, setState] = useState<SimulatorState>(initialState);
   const [activeTablePot, setActiveTablePot] = useState(0);
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  // When a fatal error occurs we freeze the log before reset wipes it,
-  // so the user can read what happened. Cleared on next reset.
   const [frozenLogs, setFrozenLogs] = useState<LogEntry[] | null>(null);
-  const flashTimeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const log = useCallback((msg: string, level: LogLevel = "info") => {
     const ts = new Date().toLocaleTimeString("en-GB", {
@@ -368,13 +377,7 @@ export function ChampionsLeagueSimulator() {
     setLogs((prev) => [...prev.slice(-300), { level, msg, ts }]);
   }, []);
 
-  const clearFlashTimeouts = () => {
-    flashTimeouts.current.forEach(clearTimeout);
-    flashTimeouts.current = [];
-  };
-
   const reset = useCallback(() => {
-    clearFlashTimeouts();
     setState(initialState());
     setActiveTablePot(0);
     setFrozenLogs(null);
@@ -387,66 +390,67 @@ export function ChampionsLeagueSimulator() {
     ]);
   }, []);
 
-  const buttonLabel = () => {
-    if (state.isLoading) return "Computing…";
-    if (state.phase === "idle") return "Start Draw";
-    if (state.phase === "done") return "New Draw";
-    if (state.phase === "team-selected")
-      return `Find Pot ${state.currentPotIndex + 1} Opponents`;
-    if (state.phase === "showing-pot")
-      return state.currentPotIndex < 3
-        ? `Draw Pot ${state.currentPotIndex + 2} Opponents`
-        : "Finish Team";
-    return "Next";
-  };
-
   const currentTeam =
     state.drawIndex >= 0 ? state.drawOrder[state.drawIndex] : null;
 
-  // Runs the solver loop with per-pair progress updates
-  const findOpponentsWithProgress = useCallback(
+  // ── Button label reflects the action that WILL happen on click ──────────────
+  const buttonLabel = (): string => {
+    if (state.isLoading) return "Computing…";
+    switch (state.phase) {
+      case "idle":
+        return "Start Draw";
+      case "team-selected":
+        return `Find Admissible — Pot ${state.currentPotIndex + 1}`;
+      case "showing-admissible":
+        return `Draw Pot ${state.currentPotIndex + 1} Match`;
+      case "showing-result":
+        return state.currentPotIndex < 3
+          ? `Next — Pot ${state.currentPotIndex + 2}`
+          : state.drawIndex + 1 < state.drawOrder.length
+            ? `Next Team`
+            : "Finish Draw";
+      case "done":
+        return "New Draw";
+    }
+  };
+
+  // ── Solver loop: shuffles admissible, tests pairs, returns first feasible ───
+  const runSolver = useCallback(
     async (
       team: Team,
       potIndex: number,
       constraints: Constraints,
-      couples: { home: Team; away: Team }[],
+      admissible: { home: Team; away: Team }[],
     ): Promise<{ home: Team; away: Team } | null> => {
-      const shuffled = [...couples].sort(() => Math.random() - 0.5);
+      const shuffled = shuffle(admissible);
       const total = shuffled.length;
+      const names = (ids: number[]) =>
+        ids.map((id) => TEAMS[id]?.name ?? id).join(", ");
 
       log(
-        `  Solver: ${total} candidate pair(s) to test for ${team.name} vs Pot ${potIndex + 1}`,
+        `  Solver testing ${total} pair(s) for ${team.name} vs Pot ${potIndex + 1}`,
         "solver",
       );
 
       for (let i = 0; i < shuffled.length; i++) {
         const { home, away } = shuffled[i];
-
-        // Update progress before calling solver (so UI shows "testing pair i+1")
         setState((s) => ({ ...s, solverProgress: { tested: i, total } }));
-        log(
-          `  [${i + 1}/${total}] Testing: H=${home.name} · A=${away.name}`,
-          "solver",
-        );
+        log(`  [${i + 1}/${total}] H=${home.name} · A=${away.name}`, "solver");
 
         const t0 = performance.now();
         const feasible = await solveProblem(team, constraints, { home, away });
         const dt = (performance.now() - t0).toFixed(0);
 
         if (feasible) {
-          log(
-            `  ✓ Feasible (${dt}ms) → H=${home.name} · A=${away.name}`,
-            "success",
-          );
+          log(`  ✓ Feasible (${dt}ms)`, "success");
           setState((s) => ({ ...s, solverProgress: { tested: i + 1, total } }));
           return { home, away };
         }
-        // On infeasible, log full constraint context for selected team + both candidates
-        const names = (ids: number[]) =>
-          ids.map((id) => TEAMS[id]?.name ?? id).join(", ");
+
+        // Log constraint context for each infeasible pair to aid diagnosis
         log(`  ✗ Infeasible (${dt}ms)`, "info");
         log(
-          `    ${team.name}: home=[${names(constraints.playedHome[team.id] ?? [])}] away=[${names(constraints.playedAway[team.id] ?? [])}]`,
+          `    ${team.name}:   home=[${names(constraints.playedHome[team.id] ?? [])}] away=[${names(constraints.playedAway[team.id] ?? [])}]`,
           "info",
         );
         log(
@@ -468,61 +472,91 @@ export function ChampionsLeagueSimulator() {
     [log],
   );
 
+  // ── Main click handler — one action per phase ─────────────────────────────
   const handleNext = useCallback(async () => {
     if (state.isLoading) return;
 
+    // ── DONE: reset ──────────────────────────────────────────────────────────
     if (state.phase === "done") {
       reset();
       return;
     }
 
+    // ── IDLE → TEAM-SELECTED ─────────────────────────────────────────────────
+    // Pick the first team from the draw order, set potIndex to 0.
+    // Constraints are fresh (no matches drawn yet).
     if (state.phase === "idle") {
       const team = state.drawOrder[0];
-      const admissible = preadmissibleOpponentCouples(
-        team,
-        0,
-        state.constraints,
-      );
       log(
-        `▶ Draw started — first team: ${team.name} (Pot ${team.pot + 1})`,
+        `▶ Draw started — Team 1/36: ${team.name} (Pot ${team.pot + 1})`,
         "info",
       );
-      log(`  ${admissible.length} pre-admissible pair(s) for Pot 1`, "info");
       setState((s) => ({
         ...s,
         phase: "team-selected",
         drawIndex: 0,
         currentPotIndex: 0,
-        admissible,
       }));
       setActiveTablePot(team.pot);
       return;
     }
 
+    // ── TEAM-SELECTED → SHOWING-ADMISSIBLE ───────────────────────────────────
+    // Compute pre-admissible pairs using state.constraints AS-IS.
+    // This is the only place preadmissibleOpponentCouples is called,
+    // and it always reads from the current (up-to-date) constraints.
     if (state.phase === "team-selected") {
       const team = state.drawOrder[state.drawIndex];
       log(
-        `── ${team.name} (Pot ${team.pot + 1}) → Pot ${state.currentPotIndex + 1} opponents ──`,
+        `── ${team.name} (Pot ${team.pot + 1}) → looking for Pot ${state.currentPotIndex + 1} opponents ──`,
         "info",
       );
-      // Dump exact constraint state so we can diagnose LP infeasibility
-      const ph = state.constraints.playedHome[team.id] ?? [];
-      const pa = state.constraints.playedAway[team.id] ?? [];
-      log(`  playedHome[${team.id}]: [${ph.join(", ")}]`, "info");
-      log(`  playedAway[${team.id}]: [${pa.join(", ")}]`, "info");
+      log(
+        `  playedHome[${team.id}]: [${(state.constraints.playedHome[team.id] ?? []).join(", ")}]`,
+        "info",
+      );
+      log(
+        `  playedAway[${team.id}]: [${(state.constraints.playedAway[team.id] ?? []).join(", ")}]`,
+        "info",
+      );
       log(
         `  nationalities[${team.id}]: ${JSON.stringify(state.constraints.nationalities[team.id])}`,
         "info",
       );
-      log(
-        `  ${state.admissible.length} pre-admissible pair(s) to evaluate`,
-        "info",
+
+      // Pre-admissible filter: cheap constraint check, no solver call
+      const admissible = preadmissibleOpponentCouples(
+        team,
+        state.currentPotIndex,
+        state.constraints,
       );
+      log(
+        `  ${admissible.length} pre-admissible pair(s) found`,
+        admissible.length === 0 ? "warn" : "info",
+      );
+
+      setState((s) => ({ ...s, phase: "showing-admissible", admissible }));
+      return;
+    }
+
+    // ── SHOWING-ADMISSIBLE → SHOWING-RESULT ──────────────────────────────────
+    // Run the LP solver on the admissible list to find a feasible match.
+    // On success: update constraints with the two new matches.
+    // Constraints are updated HERE and ONLY HERE.
+    if (state.phase === "showing-admissible") {
+      const team = state.drawOrder[state.drawIndex];
+
       if (state.admissible.length === 0) {
         log(
-          `  ✗ FATAL: pre-filter returned 0 pairs — constraint bug in preadmissibleOpponentCouples`,
+          `✗ FATAL: admissible list is empty for ${team.name} Pot ${state.currentPotIndex + 1} — cannot draw`,
           "warn",
         );
+        setLogs((current) => {
+          setFrozenLogs(current);
+          return current;
+        });
+        setState((s) => ({ ...s, phase: "done" }));
+        return;
       }
 
       setState((s) => ({
@@ -531,7 +565,8 @@ export function ChampionsLeagueSimulator() {
         solverProgress: { tested: 0, total: state.admissible.length },
       }));
 
-      const result = await findOpponentsWithProgress(
+      // Solver reads state.constraints — which have NOT been touched since last update
+      const result = await runSolver(
         team,
         state.currentPotIndex,
         state.constraints,
@@ -540,32 +575,10 @@ export function ChampionsLeagueSimulator() {
 
       if (!result) {
         log(
-          `✗ FATAL: no valid pair for ${team.name} in Pot ${state.currentPotIndex + 1}`,
+          `✗ FATAL: solver found no feasible match for ${team.name} Pot ${state.currentPotIndex + 1}`,
           "warn",
         );
-        log(`  Constraints at failure:`, "warn");
-        log(
-          `    playedHome[${team.id}]: [${(state.constraints.playedHome[team.id] || []).join(", ")}]`,
-          "warn",
-        );
-        log(
-          `    playedAway[${team.id}]: [${(state.constraints.playedAway[team.id] || []).join(", ")}]`,
-          "warn",
-        );
-        log(
-          `    nationalities[${team.id}]: ${JSON.stringify(state.constraints.nationalities[team.id])}`,
-          "warn",
-        );
-        log(
-          `  Admissible list had ${state.admissible.length} pair(s) — all infeasible per solver`,
-          "warn",
-        );
-        log(
-          `  ↑ Scroll up to see which pairs were tested. Press Reset to start over.`,
-          "warn",
-        );
-        // Freeze the log BEFORE resetting so it persists for the user to read
-        setFrozenLogs((prev) => prev); // trigger via setLogs below
+        log(`  ↑ Scroll up to inspect which pairs were tested.`, "warn");
         setLogs((current) => {
           setFrozenLogs(current);
           return current;
@@ -574,156 +587,79 @@ export function ChampionsLeagueSimulator() {
           ...s,
           isLoading: false,
           solverProgress: null,
-          phase: "done" as Phase,
+          phase: "done",
         }));
         return;
       }
 
-      // ── Semantic summary ──────────────────────────────────────────────────
-      // result.home = opponent that VISITS selectedTeam  → match: selectedTeam (H) vs result.home (A)
-      // result.away = opponent that HOSTS selectedTeam   → match: result.away (H) vs selectedTeam (A)
-      // ─────────────────────────────────────────────────────────────────────
+      // Match confirmed: update constraints with both directions
+      //   team (H) vs result.home (A) → team hosts result.home
+      //   result.away (H) vs team (A) → result.away hosts team
       log(
-        `✓ ${team.name} (H) vs ${result.home.name} (A)  |  ${result.away.name} (H) vs ${team.name} (A)`,
+        `✓ Match drawn: ${team.name} (H) vs ${result.home.name} (A)  |  ${result.away.name} (H) vs ${team.name} (A)`,
         "success",
       );
 
-      // selectedTeam hosts result.home
-      let newConstraints = updateConstraints(
-        state.constraints,
+      const updatedConstraints = updateConstraints(
+        updateConstraints(state.constraints, team, result.home),
+        result.away,
         team,
-        result.home,
       );
-      // result.away hosts selectedTeam
-      newConstraints = updateConstraints(newConstraints, result.away, team);
-
-      const newMatches: Match[] = [
-        ...state.matches,
-        { home: team, away: result.home }, // selectedTeam is home
-        { home: result.away, away: team }, // selectedTeam is away
-      ];
-
-      const newResults = state.results.map((r) => {
-        // Selected team's own row:
-        //   home cell = result.home (the opponent that visits selected team)
-        //   away cell = result.away (the opponent that hosts selected team)
-        if (r.team.id === team.id) {
-          const newPots = r.pots.map((po, pi) =>
-            pi === state.currentPotIndex
-              ? { home: result.home, away: result.away, flash: true }
-              : po,
-          ) as TeamDrawResult["pots"];
-          return { ...r, pots: newPots };
-        }
-        // result.home visited selected team → from result.home's perspective,
-        // selected team is an AWAY opponent (result.home is home, selected team visited them? No —
-        // result.home came TO selected team, so selected team was HOME.
-        // In result.home's row: they played AWAY at selected team's ground.
-        // So in result.home's pot column for selected team's pot:
-        //   away cell = selected team (result.home went away to face selected team)
-        if (r.team.id === result.home.id) {
-          const newPots = r.pots.map((po, pi) =>
-            pi === team.pot ? { ...po, away: team, flash: true } : po,
-          ) as TeamDrawResult["pots"];
-          return { ...r, pots: newPots };
-        }
-        // result.away hosted selected team → from result.away's perspective,
-        // selected team is a HOME opponent (result.away was home, selected team was the visitor).
-        // In result.away's row: they played HOME against selected team.
-        // So in result.away's pot column for selected team's pot:
-        //   home cell = selected team (selected team visited result.away)
-        if (r.team.id === result.away.id) {
-          const newPots = r.pots.map((po, pi) =>
-            pi === team.pot ? { ...po, home: team, flash: true } : po,
-          ) as TeamDrawResult["pots"];
-          return { ...r, pots: newPots };
-        }
-        return r;
-      });
-
-      const t = setTimeout(() => {
-        setState((s) => ({
-          ...s,
-          results: s.results.map((r) => ({
-            ...r,
-            pots: r.pots.map((po) => ({
-              ...po,
-              flash: false,
-            })) as TeamDrawResult["pots"],
-          })),
-        }));
-      }, 1200);
-      flashTimeouts.current.push(t);
-
-      // Pre-compute admissible for next pot
-      const nextPotIndex = state.currentPotIndex + 1;
-      const nextAdmissible =
-        nextPotIndex <= 3
-          ? preadmissibleOpponentCouples(team, nextPotIndex, newConstraints)
-          : [];
-
-      if (nextPotIndex <= 3) {
-        log(
-          `  Pre-filtered ${nextAdmissible.length} pair(s) ready for Pot ${nextPotIndex + 1}`,
-          "info",
-        );
-      }
 
       setState((s) => ({
         ...s,
-        phase: "showing-pot",
-        constraints: newConstraints,
-        matches: newMatches,
-        results: newResults,
-        admissible: nextAdmissible,
+        phase: "showing-result",
+        constraints: updatedConstraints, // ← constraints updated exactly here
         isLoading: false,
         solverProgress: null,
       }));
       return;
     }
 
-    if (state.phase === "showing-pot") {
+    // ── SHOWING-RESULT → TEAM-SELECTED (next pot or next team) ───────────────
+    // Constraints are already updated. Just advance the cursor.
+    if (state.phase === "showing-result") {
       if (state.currentPotIndex < 3) {
+        // Same team, next pot
         setState((s) => ({
           ...s,
           phase: "team-selected",
           currentPotIndex: state.currentPotIndex + 1,
-          // admissible was already pre-computed in the previous step
         }));
-      } else {
-        const nextIndex = state.drawIndex + 1;
-        if (nextIndex >= state.drawOrder.length) {
-          log("🏆 Draw complete!", "success");
-          setState((s) => ({ ...s, phase: "done" }));
-          return;
-        }
-        const nextTeam = state.drawOrder[nextIndex];
-        const admissible = preadmissibleOpponentCouples(
-          nextTeam,
-          0,
-          state.constraints,
-        );
-        log(
-          `\n▶ Next team: ${nextTeam.name} (Pot ${nextTeam.pot + 1}) — ${nextIndex + 1}/36`,
-          "info",
-        );
-        log(`  ${admissible.length} pre-admissible pair(s) for Pot 1`, "info");
-        setState((s) => ({
-          ...s,
-          phase: "team-selected",
-          drawIndex: nextIndex,
-          currentPotIndex: 0,
-          admissible,
-        }));
-        setActiveTablePot(nextTeam.pot);
+        return;
       }
+
+      // All 4 pots drawn for this team — move to next team
+      const nextIndex = state.drawIndex + 1;
+
+      if (nextIndex >= state.drawOrder.length) {
+        log("🏆 Draw complete!", "success");
+        setState((s) => ({ ...s, phase: "done" }));
+        return;
+      }
+
+      const nextTeam = state.drawOrder[nextIndex];
+      log(
+        `▶ Team ${nextIndex + 1}/36: ${nextTeam.name} (Pot ${nextTeam.pot + 1})`,
+        "info",
+      );
+      setState((s) => ({
+        ...s,
+        phase: "team-selected",
+        drawIndex: nextIndex,
+        currentPotIndex: 0,
+        admissible: [], // cleared — will be recomputed when team-selected fires
+      }));
+      setActiveTablePot(nextTeam.pot);
     }
-  }, [state, reset, log, findOpponentsWithProgress]);
+  }, [state, reset, log, runSolver]);
 
   const progress =
     state.drawIndex < 0
       ? 0
       : ((state.drawIndex * 4 + state.currentPotIndex) / (36 * 4)) * 100;
+
+  const matchCount = countMatches(state.constraints);
 
   return (
     <div className="flex flex-col gap-6">
@@ -748,7 +684,7 @@ export function ChampionsLeagueSimulator() {
       <div className="grid md:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ── Left panel ── */}
         <div className="space-y-4">
-          {/* Current team card */}
+          {/* Current team card + pot progress indicators */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
             <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
               <Dices className="h-4 w-4 text-[#cfa749]" />
@@ -770,15 +706,16 @@ export function ChampionsLeagueSimulator() {
               {currentTeam && (
                 <div className="mt-4 grid grid-cols-4 gap-1.5">
                   {[0, 1, 2, 3].map((pi) => {
-                    const res = state.results.find(
-                      (r) => r.team.id === currentTeam.id,
-                    );
-                    const po = res?.pots[pi];
-                    const isDone = po?.home != null;
+                    const isDone =
+                      getHomeOpponent(currentTeam.id, pi, state.constraints) !==
+                        null &&
+                      getAwayOpponent(currentTeam.id, pi, state.constraints) !==
+                        null;
                     const isCurrent =
                       pi === state.currentPotIndex &&
                       (state.phase === "team-selected" ||
-                        state.phase === "showing-pot");
+                        state.phase === "showing-admissible" ||
+                        state.phase === "showing-result");
                     return (
                       <div
                         key={pi}
@@ -802,57 +739,57 @@ export function ChampionsLeagueSimulator() {
             </div>
           </div>
 
-          {/* Admissible panel + solver progress */}
-          {state.phase === "team-selected" && currentTeam && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
-              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  Admissible —{" "}
-                  <PotBadge potIndex={state.currentPotIndex} small />
-                </span>
-              </div>
-              <div className="p-4">
-                <AdmissibleList couples={state.admissible} />
-
-                {/* Solver progress bar — visible only while loading */}
-                {state.isLoading && state.solverProgress && (
-                  <div className="mt-4 space-y-1.5">
-                    <div className="flex justify-between text-[10px] font-mono text-slate-500">
-                      <span>LP solver</span>
-                      <span>
-                        {state.solverProgress.tested} /{" "}
-                        {state.solverProgress.total} pairs tested
-                      </span>
+          {/* Admissible list — shown once computed */}
+          {(state.phase === "showing-admissible" ||
+            state.phase === "showing-result") &&
+            currentTeam && (
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
+                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                    Admissible —{" "}
+                    <PotBadge potIndex={state.currentPotIndex} small />
+                  </span>
+                </div>
+                <div className="p-4">
+                  <AdmissibleList couples={state.admissible} />
+                  {state.isLoading && state.solverProgress && (
+                    <div className="mt-4 space-y-1.5">
+                      <div className="flex justify-between text-[10px] font-mono text-slate-500">
+                        <span>LP solver</span>
+                        <span>
+                          {state.solverProgress.tested} /{" "}
+                          {state.solverProgress.total} pairs tested
+                        </span>
+                      </div>
+                      <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-sky-500 rounded-full transition-all duration-150 ease-out"
+                          style={{
+                            width: `${state.solverProgress.total > 0 ? (state.solverProgress.tested / state.solverProgress.total) * 100 : 0}%`,
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-sky-500 rounded-full transition-all duration-150 ease-out"
-                        style={{
-                          width: `${
-                            state.solverProgress.total > 0
-                              ? (state.solverProgress.tested /
-                                  state.solverProgress.total) *
-                                100
-                              : 0
-                          }%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Selected pair result */}
-          {state.phase === "showing-pot" &&
+          {/* Drawn match result card */}
+          {state.phase === "showing-result" &&
             currentTeam &&
             (() => {
-              const res = state.results.find(
-                (r) => r.team.id === currentTeam.id,
+              const homeOpp = getHomeOpponent(
+                currentTeam.id,
+                state.currentPotIndex,
+                state.constraints,
               );
-              const po = res?.pots[state.currentPotIndex];
-              return po?.home ? (
+              const awayOpp = getAwayOpponent(
+                currentTeam.id,
+                state.currentPotIndex,
+                state.constraints,
+              );
+              return homeOpp && awayOpp ? (
                 <div className="rounded-2xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 overflow-hidden shadow-sm">
                   <div className="px-4 py-3 border-b border-green-100 dark:border-green-800">
                     <span className="text-sm font-semibold text-green-700 dark:text-green-300 flex items-center gap-1.5">
@@ -867,7 +804,7 @@ export function ChampionsLeagueSimulator() {
                         Home
                       </span>
                       <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                        {po.home.name}
+                        {homeOpp.name}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm">
@@ -876,7 +813,7 @@ export function ChampionsLeagueSimulator() {
                         Away
                       </span>
                       <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                        {po.away?.name}
+                        {awayOpp.name}
                       </span>
                     </div>
                   </div>
@@ -936,18 +873,21 @@ export function ChampionsLeagueSimulator() {
               </button>
             ))}
             <span className="ml-auto text-xs text-slate-400 self-center">
-              {state.matches.length} matches drawn
+              {matchCount} matches drawn
             </span>
           </div>
 
-          <ResultTable results={state.results} activePot={activeTablePot} />
+          <ResultTable
+            constraints={state.constraints}
+            activePot={activeTablePot}
+          />
 
           {state.phase === "done" &&
             (frozenLogs ? (
               <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/5 px-4 py-3 flex items-center gap-2">
                 <span className="text-yellow-400 shrink-0 text-base">⚠</span>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
-                  Fatal: no valid pair found. Read the frozen log above, then
+                  Fatal: no feasible match found. Read the frozen log, then
                   press Reset.
                 </p>
               </div>
@@ -955,12 +895,11 @@ export function ChampionsLeagueSimulator() {
               <div className="rounded-xl border border-[#cfa749]/30 bg-[#cfa749]/10 px-4 py-3 flex items-center gap-2">
                 <Trophy className="h-4 w-4 text-[#cfa749] shrink-0" />
                 <p className="text-sm text-[#b45309] dark:text-[#cfa749] font-medium">
-                  Draw complete — {state.matches.length} matches scheduled.
+                  Draw complete — {matchCount} matches scheduled.
                 </p>
               </div>
             ))}
 
-          {/* Debug log panel */}
           <DebugPanel logs={frozenLogs ?? logs} frozen={frozenLogs !== null} />
         </div>
       </div>
