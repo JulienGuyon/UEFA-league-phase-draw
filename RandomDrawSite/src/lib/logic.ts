@@ -53,9 +53,9 @@ const isPreAdmissibleOpponent = (
 ): boolean =>
   opponent_team.id !== selected_team.id &&
   opponent_team.country !== selected_team.country &&
-  (constraints.nationalities[selected_team.id][opponent_team.country] ?? 0) <
-    2 &&
+  (constraints.nationalities[selected_team.id][opponent_team.country] ?? 0) < 2 &&
   (constraints.nationalities[opponent_team.id][selected_team.country] ?? 0) < 2;
+
 
 // Returns all pre-admissible (home, away) couples for the given team and pot.
 // If the home or away match for this pot is already decided (drawn earlier when
@@ -98,11 +98,25 @@ export function preadmissibleOpponentCouples(
       ? [existingAway]
       : potTeams.filter((t) => isPreAdmissibleOpponent(team, t, constraints));
 
-  // Build all valid (home, away) pairs
+  // Build all valid (home, away) pairs.
   const couples: { home: Team; away: Team }[] = [];
   for (const h of homeCandidates) {
     for (const a of awayCandidates) {
-      if (h.id === a.id) continue; // home and away must be different teams
+      if (h.id === a.id) continue;
+
+
+      // h VISITS selected team → h consumes its away slot against team.pot.
+      // Reject h only if it already has an away match against a DIFFERENT team from team.pot.
+      if (constraints.playedAway[h.id].some((id) => TEAMS[id]?.pot === team.pot && id !== team.id)) {
+        continue;
+      }
+
+      // a HOSTS selected team → a consumes its home slot against team.pot.
+      // Reject a only if it already has a home match against a DIFFERENT team from team.pot.
+      if (constraints.playedHome[a.id].some((id) => TEAMS[id]?.pot === team.pot && id !== team.id)) {
+        continue;
+      }
+
       couples.push({ home: h, away: a });
     }
   }

@@ -112,7 +112,11 @@ export default function Home() {
                 See the code
               </Button>
             </a>
-            <a href="https://arxiv.com/" className="group" aria-label="Arxiv">
+            <a
+              href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
+              className="group"
+              aria-label="SSRN"
+            >
               <Button
                 variant="secondary"
                 className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-sm"

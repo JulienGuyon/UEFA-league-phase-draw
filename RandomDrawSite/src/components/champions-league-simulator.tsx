@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { POTS, TEAMS } from "../lib/data";
 import type { Team, Constraints } from "../lib/types";
 import {
@@ -18,44 +18,52 @@ import {
   Loader2,
   RotateCcw,
   Terminal,
+  Play,
+  Pause,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-// The draw proceeds through these phases for each (team, pot) pair:
+// Phase machine for each (team, pot) draw step:
 //
 //   idle
-//     ↓ [Start Draw] — pick first team, set drawIndex=0, potIndex=0
+//     ↓ [Start] — pick first team, potIndex = team.pot (only draw from own pot onwards)
 //   team-selected
-//     ↓ [Find Admissible] — compute preadmissible with CURRENT constraints, store in state
+//     ↓ [Find Admissible] — compute preadmissible with CURRENT constraints
 //   showing-admissible
-//     ↓ [Draw Match] — run solver on admissible list, pick a match, UPDATE constraints
+//     ↓ [Draw Match] — run solver, pick match, UPDATE constraints
 //   showing-result
-//     ↓ [Next Pot]  — if potIndex < 3: potIndex++, go back to team-selected
-//        [Next Team] — if potIndex == 3: drawIndex++, potIndex=0, go back to team-selected
-//        [Finish]   — if no more teams: done
+//     ↓ [Next Pot / Next Team / Finish]
 //   done
 //
-// Constraints are ONLY updated in the showing-admissible → showing-result transition,
-// immediately after a match is confirmed by the solver. Pre-admissible computation
-// always reads from the constraints state at the moment the button is pressed.
+// Key optimization: a team from pot i only needs to find opponents from pots i..3.
+// Pots 0..i-1 were already decided when the earlier pot teams were drawn.
+//
+// Constraints are ONLY updated in showing-admissible → showing-result.
 
 type Phase =
   | "idle"
-  | "team-selected" // team is chosen, waiting to compute admissible
-  | "showing-admissible" // admissible list computed and displayed, waiting to draw
-  | "showing-result" // match drawn, constraints updated, result displayed
+  | "team-selected"
+  | "showing-admissible"
+  | "showing-result"
   | "done";
+
+// Tracks which cells were just filled so we can flash them green
+interface FlashSet {
+  // key: `${teamId}-${potIndex}-h` or `${teamId}-${potIndex}-a`
+  [key: string]: boolean;
+}
 
 interface SimulatorState {
   phase: Phase;
   drawOrder: Team[];
-  drawIndex: number; // index into drawOrder for the current team
-  currentPotIndex: number; // 0–3, which opponent pot we're drawing from
-  admissible: { home: Team; away: Team }[]; // valid pairs for current (team, pot)
-  constraints: Constraints; // single source of truth for all drawn matches
+  drawIndex: number;
+  currentPotIndex: number;
+  admissible: { home: Team; away: Team }[];
+  constraints: Constraints;
   isLoading: boolean;
   solverProgress: { tested: number; total: number } | null;
+  flash: FlashSet; // cells currently highlighted green
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -90,6 +98,8 @@ const POT_COLORS = [
     label: "Pot 4",
   },
 ];
+
+const AUTO_SPEED_MS = 800;
 
 type LogLevel = "info" | "success" | "warn" | "solver";
 interface LogEntry {
@@ -128,10 +138,15 @@ function initialState(): SimulatorState {
     constraints: initializeConstraints(),
     isLoading: false,
     solverProgress: null,
+    flash: {},
   };
 }
 
-// Reads who visits `teamId` from pot `potIndex` (team is HOME)
+// For team from pot i, the first pot to draw is pot i (lower pots already settled)
+function startingPotIndex(team: Team): number {
+  return team.pot;
+}
+
 function getHomeOpponent(
   teamId: number,
   potIndex: number,
@@ -143,7 +158,6 @@ function getHomeOpponent(
   return id !== undefined ? (TEAMS[id] ?? null) : null;
 }
 
-// Reads who hosts `teamId` from pot `potIndex` (team is AWAY)
 function getAwayOpponent(
   teamId: number,
   potIndex: number,
@@ -157,6 +171,25 @@ function getAwayOpponent(
 
 function countMatches(c: Constraints): number {
   return Object.values(c.playedHome).reduce((acc, arr) => acc + arr.length, 0);
+}
+
+// Build flash keys for a just-drawn match:
+// - selected team's home cell (pot currentPotIndex)
+// - selected team's away cell (pot currentPotIndex)
+// - homeOpponent's away cell (pot team.pot) — they played away at team's ground
+// - awayOpponent's home cell (pot team.pot) — they hosted team
+function buildFlashKeys(
+  team: Team,
+  potIndex: number,
+  homeOpp: Team,
+  awayOpp: Team,
+): FlashSet {
+  return {
+    [`${team.id}-${potIndex}-h`]: true,
+    [`${team.id}-${potIndex}-a`]: true,
+    [`${homeOpp.id}-${team.pot}-a`]: true,
+    [`${awayOpp.id}-${team.pot}-h`]: true,
+  };
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -175,8 +208,7 @@ function PotBadge({ potIndex, small }: { potIndex: number; small?: boolean }) {
 function TeamCard({ team, active }: { team: Team; active?: boolean }) {
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300
-      ${active ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"}`}
+      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300 ${active ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"}`}
     >
       <PotBadge potIndex={team.pot} />
       <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
@@ -191,16 +223,19 @@ function TeamCard({ team, active }: { team: Team; active?: boolean }) {
 
 function AdmissibleList({
   couples,
+  potIndex,
 }: {
   couples: { home: Team; away: Team }[];
+  potIndex: number;
 }) {
   if (couples.length === 0) return null;
   return (
     <div className="mt-3">
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-        {couples.length} admissible pair{couples.length > 1 ? "s" : ""}
+        {couples.length} admissible pair{couples.length > 1 ? "s" : ""} in{"  "}
+        <PotBadge potIndex={potIndex} small />
       </p>
-      <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+      <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
         {couples.map(({ home, away }, i) => (
           <div
             key={i}
@@ -218,13 +253,16 @@ function AdmissibleList({
   );
 }
 
-// Reads all results directly from constraints — no separate results state
 function ResultTable({
   constraints,
   activePot,
+  flash,
+  highlightTeamId,
 }: {
   constraints: Constraints;
   activePot: number;
+  flash: FlashSet;
+  highlightTeamId: number | null;
 }) {
   const potTeams = POTS[activePot as keyof typeof POTS];
   return (
@@ -253,14 +291,14 @@ function ResultTable({
               <>
                 <th
                   key={`${p}-h`}
-                  className="px-2 py-1 text-center text-[10px] text-slate-400 font-medium"
+                  className="px-2 py-1 text-center text-[10px] text-slate-400"
                   title="Opponent who visits this team"
                 >
                   <Home className="h-3 w-3 inline" />
                 </th>
                 <th
                   key={`${p}-a`}
-                  className="px-2 py-1 text-center text-[10px] text-slate-400 font-medium"
+                  className="px-2 py-1 text-center text-[10px] text-slate-400"
                   title="Opponent who hosts this team"
                 >
                   <Plane className="h-3 w-3 inline" />
@@ -270,42 +308,59 @@ function ResultTable({
           </tr>
         </thead>
         <tbody>
-          {potTeams.map((team) => (
-            <tr
-              key={team.id}
-              className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-            >
-              <td className="px-3 py-1.5 font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[7rem]">
-                {team.name}
-              </td>
-              {[0, 1, 2, 3].map((pi) => {
-                const h = getHomeOpponent(team.id, pi, constraints);
-                const a = getAwayOpponent(team.id, pi, constraints);
-                return (
-                  <>
-                    <td key={`${pi}-h`} className="px-2 py-1.5 text-center">
-                      {h ? (
-                        <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
-                          {h.name}
-                        </span>
-                      ) : (
-                        <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
-                      )}
-                    </td>
-                    <td key={`${pi}-a`} className="px-2 py-1.5 text-center">
-                      {a ? (
-                        <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
-                          {a.name}
-                        </span>
-                      ) : (
-                        <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
-                      )}
-                    </td>
-                  </>
-                );
-              })}
-            </tr>
-          ))}
+          {potTeams.map((team) => {
+            const isHighlighted = team.id === highlightTeamId;
+            return (
+              <tr
+                key={team.id}
+                className={`border-b border-slate-100 dark:border-slate-800 transition-colors duration-300 ${
+                  isHighlighted
+                    ? "bg-[#cfa749]/10 dark:bg-[#cfa749]/10"
+                    : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <td
+                  className={`px-3 py-1.5 font-semibold truncate max-w-[7rem] ${isHighlighted ? "text-[#b45309] dark:text-[#cfa749]" : "text-slate-700 dark:text-slate-200"}`}
+                >
+                  {team.name}
+                </td>
+                {[0, 1, 2, 3].map((pi) => {
+                  const h = getHomeOpponent(team.id, pi, constraints);
+                  const a = getAwayOpponent(team.id, pi, constraints);
+                  const hFlash = flash[`${team.id}-${pi}-h`];
+                  const aFlash = flash[`${team.id}-${pi}-a`];
+                  return (
+                    <>
+                      <td
+                        key={`${pi}-h`}
+                        className={`px-2 py-1.5 text-center transition-colors duration-300 ${hFlash ? "bg-green-200 dark:bg-green-800/60" : ""}`}
+                      >
+                        {h ? (
+                          <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
+                            {h.name}
+                          </span>
+                        ) : (
+                          <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
+                        )}
+                      </td>
+                      <td
+                        key={`${pi}-a`}
+                        className={`px-2 py-1.5 text-center transition-colors duration-300 ${aFlash ? "bg-green-200 dark:bg-green-800/60" : ""}`}
+                      >
+                        {a ? (
+                          <span className="inline-block max-w-[5rem] truncate text-slate-700 dark:text-slate-300">
+                            {a.name}
+                          </span>
+                        ) : (
+                          <span className="inline-block w-12 h-4 rounded bg-slate-100 dark:bg-slate-800" />
+                        )}
+                      </td>
+                    </>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -314,6 +369,13 @@ function ResultTable({
 
 function DebugPanel({ logs, frozen }: { logs: LogEntry[]; frozen: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Auto-scroll to bottom on new logs
+  useEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
+  }, [logs]);
+
   const colors: Record<LogLevel, string> = {
     info: "text-slate-400",
     success: "text-green-400",
@@ -367,6 +429,13 @@ export function ChampionsLeagueSimulator() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [frozenLogs, setFrozenLogs] = useState<LogEntry[] | null>(null);
 
+  // Auto mode
+  const [autoMode, setAutoMode] = useState(false);
+  const autoRef = useRef(false); // mutable ref tracks live auto state for async loops
+
+  // Flash timeout cleanup
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const log = useCallback((msg: string, level: LogLevel = "info") => {
     const ts = new Date().toLocaleTimeString("en-GB", {
       hour12: false,
@@ -374,10 +443,13 @@ export function ChampionsLeagueSimulator() {
       minute: "2-digit",
       second: "2-digit",
     });
-    setLogs((prev) => [...prev.slice(-300), { level, msg, ts }]);
+    setLogs((prev) => [...prev.slice(-400), { level, msg, ts }]);
   }, []);
 
   const reset = useCallback(() => {
+    autoRef.current = false;
+    setAutoMode(false);
+    if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     setState(initialState());
     setActiveTablePot(0);
     setFrozenLogs(null);
@@ -393,7 +465,6 @@ export function ChampionsLeagueSimulator() {
   const currentTeam =
     state.drawIndex >= 0 ? state.drawOrder[state.drawIndex] : null;
 
-  // ── Button label reflects the action that WILL happen on click ──────────────
   const buttonLabel = (): string => {
     if (state.isLoading) return "Computing…";
     switch (state.phase) {
@@ -404,17 +475,25 @@ export function ChampionsLeagueSimulator() {
       case "showing-admissible":
         return `Draw Pot ${state.currentPotIndex + 1} Match`;
       case "showing-result":
-        return state.currentPotIndex < 3
-          ? `Next — Pot ${state.currentPotIndex + 2}`
-          : state.drawIndex + 1 < state.drawOrder.length
-            ? `Next Team`
-            : "Finish Draw";
+        if (state.currentPotIndex < 3)
+          return `Next — Pot ${state.currentPotIndex + 2}`;
+        return state.drawIndex + 1 < state.drawOrder.length
+          ? "Next Team"
+          : "Finish Draw";
       case "done":
         return "New Draw";
     }
   };
 
-  // ── Solver loop: shuffles admissible, tests pairs, returns first feasible ───
+  // Schedule flash clear after 900ms
+  const scheduleFlashClear = useCallback(() => {
+    if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+    flashTimeoutRef.current = setTimeout(() => {
+      setState((s) => ({ ...s, flash: {} }));
+    }, 900);
+  }, []);
+
+  // ── Solver loop ──────────────────────────────────────────────────────────────
   const runSolver = useCallback(
     async (
       team: Team,
@@ -446,8 +525,6 @@ export function ChampionsLeagueSimulator() {
           setState((s) => ({ ...s, solverProgress: { tested: i + 1, total } }));
           return { home, away };
         }
-
-        // Log constraint context for each infeasible pair to aid diagnosis
         log(`  ✗ Infeasible (${dt}ms)`, "info");
         log(
           `    ${team.name}:   home=[${names(constraints.playedHome[team.id] ?? [])}] away=[${names(constraints.playedAway[team.id] ?? [])}]`,
@@ -472,187 +549,276 @@ export function ChampionsLeagueSimulator() {
     [log],
   );
 
-  // ── Main click handler — one action per phase ─────────────────────────────
+  // ── Core step function — advances the state machine by one phase ─────────────
+  // Returns the new state after the step (used by auto mode to chain steps)
+  const step = useCallback(
+    async (s: SimulatorState): Promise<SimulatorState | null> => {
+      if (s.isLoading) return null;
+
+      // DONE
+      if (s.phase === "done") return null;
+
+      // IDLE → TEAM-SELECTED: select first team, start at that team's pot
+      if (s.phase === "idle") {
+        const team = s.drawOrder[0];
+        const potIndex = startingPotIndex(team);
+        log(
+          `▶ Draw started — Team 1/36: ${team.name} (Pot ${team.pot + 1}), starting at Pot ${potIndex + 1}`,
+          "info",
+        );
+        const next: SimulatorState = {
+          ...s,
+          phase: "team-selected",
+          drawIndex: 0,
+          currentPotIndex: potIndex,
+          flash: {},
+        };
+        setState(next);
+        setActiveTablePot(team.pot);
+        return next;
+      }
+
+      // TEAM-SELECTED → SHOWING-ADMISSIBLE: compute pre-admissible with current constraints
+      if (s.phase === "team-selected") {
+        const team = s.drawOrder[s.drawIndex];
+        log(
+          `── ${team.name} (Pot ${team.pot + 1}) → Pot ${s.currentPotIndex + 1} opponents ──`,
+          "info",
+        );
+        log(
+          `  playedHome[${team.id}]: [${(s.constraints.playedHome[team.id] ?? []).join(", ")}]`,
+          "info",
+        );
+        log(
+          `  playedAway[${team.id}]: [${(s.constraints.playedAway[team.id] ?? []).join(", ")}]`,
+          "info",
+        );
+        log(
+          `  nationalities[${team.id}]: ${JSON.stringify(s.constraints.nationalities[team.id])}`,
+          "info",
+        );
+
+        const admissible = preadmissibleOpponentCouples(
+          team,
+          s.currentPotIndex,
+          s.constraints,
+        );
+        log(
+          `  ${admissible.length} pre-admissible pair(s) found`,
+          admissible.length === 0 ? "warn" : "info",
+        );
+
+        const next: SimulatorState = {
+          ...s,
+          phase: "showing-admissible",
+          admissible,
+        };
+        setState(next);
+        return next;
+      }
+
+      // SHOWING-ADMISSIBLE → SHOWING-RESULT: run solver, update constraints
+      if (s.phase === "showing-admissible") {
+        const team = s.drawOrder[s.drawIndex];
+
+        if (s.admissible.length === 0) {
+          log(
+            `✗ FATAL: empty admissible list for ${team.name} Pot ${s.currentPotIndex + 1}`,
+            "warn",
+          );
+          setLogs((cur) => {
+            setFrozenLogs(cur);
+            return cur;
+          });
+          const next: SimulatorState = { ...s, phase: "done" };
+          setState(next);
+          return null;
+        }
+
+        setState((prev) => ({
+          ...prev,
+          isLoading: true,
+          solverProgress: { tested: 0, total: s.admissible.length },
+        }));
+
+        const result = await runSolver(
+          team,
+          s.currentPotIndex,
+          s.constraints,
+          s.admissible,
+        );
+
+        if (!result) {
+          log(
+            `✗ FATAL: no feasible match for ${team.name} Pot ${s.currentPotIndex + 1}`,
+            "warn",
+          );
+          log(`  ↑ Scroll up to inspect tested pairs.`, "warn");
+          setLogs((cur) => {
+            setFrozenLogs(cur);
+            return cur;
+          });
+          const next: SimulatorState = {
+            ...s,
+            isLoading: false,
+            solverProgress: null,
+            phase: "done",
+          };
+          setState(next);
+          return null;
+        }
+
+        // Match confirmed — update constraints for both directions:
+        //   team (H) vs result.home (A)
+        //   result.away (H) vs team (A)
+        log(
+          `✓ ${team.name} (H) vs ${result.home.name} (A)  |  ${result.away.name} (H) vs ${team.name} (A)`,
+          "success",
+        );
+
+        const updatedConstraints = updateConstraints(
+          updateConstraints(s.constraints, team, result.home),
+          result.away,
+          team,
+        );
+
+        const flashKeys = buildFlashKeys(
+          team,
+          s.currentPotIndex,
+          result.home,
+          result.away,
+        );
+        scheduleFlashClear();
+
+        const next: SimulatorState = {
+          ...s,
+          phase: "showing-result",
+          constraints: updatedConstraints,
+          isLoading: false,
+          solverProgress: null,
+          flash: flashKeys,
+        };
+        setState(next);
+        return next;
+      }
+
+      // SHOWING-RESULT → TEAM-SELECTED or DONE: advance cursor
+      if (s.phase === "showing-result") {
+        // Next pot for same team (still within pots 0..3)
+        if (s.currentPotIndex < 3) {
+          const next: SimulatorState = {
+            ...s,
+            phase: "team-selected",
+            currentPotIndex: s.currentPotIndex + 1,
+            flash: {},
+          };
+          setState(next);
+          return next;
+        }
+
+        // All pots done for this team — move to next team
+        const nextIndex = s.drawIndex + 1;
+
+        if (nextIndex >= s.drawOrder.length) {
+          log("🏆 Draw complete!", "success");
+          const next: SimulatorState = { ...s, phase: "done", flash: {} };
+          setState(next);
+          return null;
+        }
+
+        const nextTeam = s.drawOrder[nextIndex];
+        const potIndex = startingPotIndex(nextTeam);
+        log(
+          `▶ Team ${nextIndex + 1}/36: ${nextTeam.name} (Pot ${nextTeam.pot + 1}), starting at Pot ${potIndex + 1}`,
+          "info",
+        );
+
+        const next: SimulatorState = {
+          ...s,
+          phase: "team-selected",
+          drawIndex: nextIndex,
+          currentPotIndex: potIndex,
+          admissible: [],
+          flash: {},
+        };
+        setState(next);
+        setActiveTablePot(nextTeam.pot);
+        return next;
+      }
+
+      return null;
+    },
+    [log, runSolver, scheduleFlashClear],
+  );
+
+  // ── Manual next button ───────────────────────────────────────────────────────
   const handleNext = useCallback(async () => {
     if (state.isLoading) return;
-
-    // ── DONE: reset ──────────────────────────────────────────────────────────
     if (state.phase === "done") {
       reset();
       return;
     }
+    await step(state);
+  }, [state, step, reset]);
 
-    // ── IDLE → TEAM-SELECTED ─────────────────────────────────────────────────
-    // Pick the first team from the draw order, set potIndex to 0.
-    // Constraints are fresh (no matches drawn yet).
-    if (state.phase === "idle") {
-      const team = state.drawOrder[0];
-      log(
-        `▶ Draw started — Team 1/36: ${team.name} (Pot ${team.pot + 1})`,
-        "info",
-      );
-      setState((s) => ({
-        ...s,
-        phase: "team-selected",
-        drawIndex: 0,
-        currentPotIndex: 0,
-      }));
-      setActiveTablePot(team.pot);
+  // ── Auto mode loop ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!autoMode) {
+      autoRef.current = false;
       return;
     }
+    autoRef.current = true;
 
-    // ── TEAM-SELECTED → SHOWING-ADMISSIBLE ───────────────────────────────────
-    // Compute pre-admissible pairs using state.constraints AS-IS.
-    // This is the only place preadmissibleOpponentCouples is called,
-    // and it always reads from the current (up-to-date) constraints.
-    if (state.phase === "team-selected") {
-      const team = state.drawOrder[state.drawIndex];
-      log(
-        `── ${team.name} (Pot ${team.pot + 1}) → looking for Pot ${state.currentPotIndex + 1} opponents ──`,
-        "info",
-      );
-      log(
-        `  playedHome[${team.id}]: [${(state.constraints.playedHome[team.id] ?? []).join(", ")}]`,
-        "info",
-      );
-      log(
-        `  playedAway[${team.id}]: [${(state.constraints.playedAway[team.id] ?? []).join(", ")}]`,
-        "info",
-      );
-      log(
-        `  nationalities[${team.id}]: ${JSON.stringify(state.constraints.nationalities[team.id])}`,
-        "info",
-      );
+    const delay = (ms: number) =>
+      new Promise<void>((res) => setTimeout(res, ms));
+    const speedMs = AUTO_SPEED_MS;
 
-      // Pre-admissible filter: cheap constraint check, no solver call
-      const admissible = preadmissibleOpponentCouples(
-        team,
-        state.currentPotIndex,
-        state.constraints,
-      );
-      log(
-        `  ${admissible.length} pre-admissible pair(s) found`,
-        admissible.length === 0 ? "warn" : "info",
-      );
+    const run = async () => {
+      // Get latest state via a ref-like approach: re-read from setState callback
+      let current: SimulatorState | null = null;
+      setState((s) => {
+        current = s;
+        return s;
+      });
+      // Wait one tick for current to be populated
+      await delay(0);
+      if (!current) return;
 
-      setState((s) => ({ ...s, phase: "showing-admissible", admissible }));
-      return;
+      while (autoRef.current) {
+        const s = current as SimulatorState;
+        if (s.phase === "done" || s.isLoading) break;
+
+        const next = await step(s);
+        if (!next || next.phase === "done") {
+          autoRef.current = false;
+          setAutoMode(false);
+          break;
+        }
+        current = next;
+
+        // Pause between showing-result steps so flash animation is visible
+        if (
+          next.phase === "showing-result" ||
+          next.phase === "showing-admissible"
+        ) {
+          await delay(speedMs);
+        }
+      }
+    };
+
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMode]);
+
+  const toggleAuto = () => {
+    if (autoMode) {
+      autoRef.current = false;
+      setAutoMode(false);
+    } else {
+      if (state.phase === "done") return;
+      setAutoMode(true);
     }
-
-    // ── SHOWING-ADMISSIBLE → SHOWING-RESULT ──────────────────────────────────
-    // Run the LP solver on the admissible list to find a feasible match.
-    // On success: update constraints with the two new matches.
-    // Constraints are updated HERE and ONLY HERE.
-    if (state.phase === "showing-admissible") {
-      const team = state.drawOrder[state.drawIndex];
-
-      if (state.admissible.length === 0) {
-        log(
-          `✗ FATAL: admissible list is empty for ${team.name} Pot ${state.currentPotIndex + 1} — cannot draw`,
-          "warn",
-        );
-        setLogs((current) => {
-          setFrozenLogs(current);
-          return current;
-        });
-        setState((s) => ({ ...s, phase: "done" }));
-        return;
-      }
-
-      setState((s) => ({
-        ...s,
-        isLoading: true,
-        solverProgress: { tested: 0, total: state.admissible.length },
-      }));
-
-      // Solver reads state.constraints — which have NOT been touched since last update
-      const result = await runSolver(
-        team,
-        state.currentPotIndex,
-        state.constraints,
-        state.admissible,
-      );
-
-      if (!result) {
-        log(
-          `✗ FATAL: solver found no feasible match for ${team.name} Pot ${state.currentPotIndex + 1}`,
-          "warn",
-        );
-        log(`  ↑ Scroll up to inspect which pairs were tested.`, "warn");
-        setLogs((current) => {
-          setFrozenLogs(current);
-          return current;
-        });
-        setState((s) => ({
-          ...s,
-          isLoading: false,
-          solverProgress: null,
-          phase: "done",
-        }));
-        return;
-      }
-
-      // Match confirmed: update constraints with both directions
-      //   team (H) vs result.home (A) → team hosts result.home
-      //   result.away (H) vs team (A) → result.away hosts team
-      log(
-        `✓ Match drawn: ${team.name} (H) vs ${result.home.name} (A)  |  ${result.away.name} (H) vs ${team.name} (A)`,
-        "success",
-      );
-
-      const updatedConstraints = updateConstraints(
-        updateConstraints(state.constraints, team, result.home),
-        result.away,
-        team,
-      );
-
-      setState((s) => ({
-        ...s,
-        phase: "showing-result",
-        constraints: updatedConstraints, // ← constraints updated exactly here
-        isLoading: false,
-        solverProgress: null,
-      }));
-      return;
-    }
-
-    // ── SHOWING-RESULT → TEAM-SELECTED (next pot or next team) ───────────────
-    // Constraints are already updated. Just advance the cursor.
-    if (state.phase === "showing-result") {
-      if (state.currentPotIndex < 3) {
-        // Same team, next pot
-        setState((s) => ({
-          ...s,
-          phase: "team-selected",
-          currentPotIndex: state.currentPotIndex + 1,
-        }));
-        return;
-      }
-
-      // All 4 pots drawn for this team — move to next team
-      const nextIndex = state.drawIndex + 1;
-
-      if (nextIndex >= state.drawOrder.length) {
-        log("🏆 Draw complete!", "success");
-        setState((s) => ({ ...s, phase: "done" }));
-        return;
-      }
-
-      const nextTeam = state.drawOrder[nextIndex];
-      log(
-        `▶ Team ${nextIndex + 1}/36: ${nextTeam.name} (Pot ${nextTeam.pot + 1})`,
-        "info",
-      );
-      setState((s) => ({
-        ...s,
-        phase: "team-selected",
-        drawIndex: nextIndex,
-        currentPotIndex: 0,
-        admissible: [], // cleared — will be recomputed when team-selected fires
-      }));
-      setActiveTablePot(nextTeam.pot);
-    }
-  }, [state, reset, log, runSolver]);
+  };
 
   const progress =
     state.drawIndex < 0
@@ -663,7 +829,7 @@ export function ChampionsLeagueSimulator() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Overall progress bar */}
+      {/* Progress bar */}
       <div className="space-y-1">
         <div className="flex justify-between text-xs text-slate-500 font-medium">
           <span>Draw progress</span>
@@ -684,14 +850,8 @@ export function ChampionsLeagueSimulator() {
       <div className="grid md:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ── Left panel ── */}
         <div className="space-y-4">
-          {/* Current team card + pot progress indicators */}
+          {/* Current team card + pot indicators */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-              <Dices className="h-4 w-4 text-[#cfa749]" />
-              <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                Current Team
-              </span>
-            </div>
             <div className="p-4">
               {currentTeam ? (
                 <TeamCard team={currentTeam} active />
@@ -711,6 +871,7 @@ export function ChampionsLeagueSimulator() {
                         null &&
                       getAwayOpponent(currentTeam.id, pi, state.constraints) !==
                         null;
+                    const isSkipped = pi < startingPotIndex(currentTeam); // already decided, not drawn now
                     const isCurrent =
                       pi === state.currentPotIndex &&
                       (state.phase === "team-selected" ||
@@ -722,14 +883,22 @@ export function ChampionsLeagueSimulator() {
                         className={`rounded-lg p-2 text-center text-[10px] font-semibold border transition-all duration-300 ${
                           isDone
                             ? `${POT_COLORS[pi].light} ${POT_COLORS[pi].border} ${POT_COLORS[pi].text}`
-                            : isCurrent
-                              ? "bg-[#cfa749]/15 border-[#cfa749]/40 text-[#b45309] animate-pulse"
-                              : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400"
+                            : isSkipped
+                              ? "bg-slate-100 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600"
+                              : isCurrent
+                                ? "bg-[#cfa749]/15 border-[#cfa749]/40 text-[#b45309] animate-pulse"
+                                : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400"
                         }`}
                       >
                         Pot {pi + 1}
                         <div className="mt-0.5">
-                          {isDone ? "✓" : isCurrent ? "↓" : "·"}
+                          {isDone
+                            ? "✓"
+                            : isSkipped
+                              ? "–"
+                              : isCurrent
+                                ? "↓"
+                                : "·"}
                         </div>
                       </div>
                     );
@@ -739,26 +908,81 @@ export function ChampionsLeagueSimulator() {
             </div>
           </div>
 
-          {/* Admissible list — shown once computed */}
+          {/* CTA + Auto controls */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleNext}
+              disabled={state.isLoading || autoMode}
+              className={`flex-1 flex items-center justify-center gap-2 rounded-2xl px-4 py-3.5 font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed ${
+                state.phase === "done"
+                  ? "bg-slate-800 hover:bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
+                  : "bg-[#0e1e5b] hover:bg-[#1e3a8a] text-white"
+              }`}
+            >
+              {state.isLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Computing…
+                </>
+              ) : state.phase === "done" ? (
+                <>
+                  <RotateCcw className="h-4 w-4" /> New Draw
+                </>
+              ) : (
+                <>
+                  {buttonLabel()} <ChevronRight className="h-4 w-4" />
+                </>
+              )}
+            </button>
+
+            {/* Auto mode button */}
+            {state.phase !== "done" && (
+              <div className="flex gap-1">
+                <button
+                  onClick={toggleAuto}
+                  disabled={state.isLoading && !autoMode}
+                  title={autoMode ? "Pause auto" : "Start auto draw"}
+                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3.5 font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] ${
+                    autoMode
+                      ? "bg-amber-500 hover:bg-amber-600 text-white"
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                  }`}
+                >
+                  {autoMode ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {state.phase !== "idle" && state.phase !== "done" && (
+            <button
+              onClick={reset}
+              className="w-full text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-1"
+            >
+              Reset draw
+            </button>
+          )}
+
+          {/* Admissible list + solver progress */}
           {(state.phase === "showing-admissible" ||
             state.phase === "showing-result") &&
             currentTeam && (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">
-                    Admissible —{" "}
-                    <PotBadge potIndex={state.currentPotIndex} small />
-                  </span>
-                </div>
                 <div className="p-4">
-                  <AdmissibleList couples={state.admissible} />
+                  <AdmissibleList
+                    couples={state.admissible}
+                    potIndex={state.currentPotIndex}
+                  />
                   {state.isLoading && state.solverProgress && (
                     <div className="mt-4 space-y-1.5">
                       <div className="flex justify-between text-[10px] font-mono text-slate-500">
                         <span>LP solver</span>
                         <span>
                           {state.solverProgress.tested} /{" "}
-                          {state.solverProgress.total} pairs tested
+                          {state.solverProgress.total} pairs
                         </span>
                       </div>
                       <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -775,7 +999,7 @@ export function ChampionsLeagueSimulator() {
               </div>
             )}
 
-          {/* Drawn match result card */}
+          {/* Result card */}
           {state.phase === "showing-result" &&
             currentTeam &&
             (() => {
@@ -791,74 +1015,24 @@ export function ChampionsLeagueSimulator() {
               );
               return homeOpp && awayOpp ? (
                 <div className="rounded-2xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 overflow-hidden shadow-sm">
-                  <div className="px-4 py-3 border-b border-green-100 dark:border-green-800">
-                    <span className="text-sm font-semibold text-green-700 dark:text-green-300 flex items-center gap-1.5">
-                      <Trophy className="h-3.5 w-3.5" /> Drawn —{" "}
-                      <PotBadge potIndex={state.currentPotIndex} small />
-                    </span>
-                  </div>
-                  <div className="p-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm">
-                      <Home className="h-3.5 w-3.5 text-slate-400" />
-                      <span className="text-slate-500 text-xs w-10 shrink-0">
-                        Home
-                      </span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                        {homeOpp.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Plane className="h-3.5 w-3.5 text-slate-400" />
-                      <span className="text-slate-500 text-xs w-10 shrink-0">
-                        Away
-                      </span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-100 truncate">
-                        {awayOpp.name}
+                  <div className="px-4 py-3 align-middle">
+                    <div className="flex items-center gap-3">
+                      <Trophy className="h-4 w-4 text-green-700 dark:text-green-300 flex-shrink-0" />
+                      <span className="text-sm text-slate-700 dark:text-slate-200">
+                        H: <span className="font-semibold">{homeOpp.name}</span>
+                        <span className="mx-2 text-slate-400">|</span>
+                        A: <span className="font-semibold">{awayOpp.name}</span>
                       </span>
                     </div>
                   </div>
                 </div>
               ) : null;
             })()}
-
-          {/* CTA Button */}
-          <button
-            onClick={handleNext}
-            disabled={state.isLoading}
-            className={`w-full flex items-center justify-center gap-2 rounded-2xl px-5 py-4 font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed ${
-              state.phase === "done"
-                ? "bg-slate-800 hover:bg-slate-700 text-white dark:bg-slate-200 dark:hover:bg-white dark:text-slate-900"
-                : "bg-[#0e1e5b] hover:bg-[#1e3a8a] text-white"
-            }`}
-          >
-            {state.isLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" /> Computing…
-              </>
-            ) : state.phase === "done" ? (
-              <>
-                <RotateCcw className="h-4 w-4" /> New Draw
-              </>
-            ) : (
-              <>
-                {buttonLabel()} <ChevronRight className="h-4 w-4" />
-              </>
-            )}
-          </button>
-
-          {state.phase !== "idle" && state.phase !== "done" && (
-            <button
-              onClick={reset}
-              className="w-full text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors py-1"
-            >
-              Reset draw
-            </button>
-          )}
         </div>
 
         {/* ── Right panel ── */}
         <div className="space-y-3">
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-center">
             {[0, 1, 2, 3].map((p) => (
               <button
                 key={p}
@@ -872,7 +1046,7 @@ export function ChampionsLeagueSimulator() {
                 Pot {p + 1}
               </button>
             ))}
-            <span className="ml-auto text-xs text-slate-400 self-center">
+            <span className="ml-auto text-xs text-slate-400">
               {matchCount} matches drawn
             </span>
           </div>
@@ -880,6 +1054,8 @@ export function ChampionsLeagueSimulator() {
           <ResultTable
             constraints={state.constraints}
             activePot={activeTablePot}
+            flash={state.flash}
+            highlightTeamId={currentTeam?.id ?? null}
           />
 
           {state.phase === "done" &&
@@ -900,7 +1076,7 @@ export function ChampionsLeagueSimulator() {
               </div>
             ))}
 
-          <DebugPanel logs={frozenLogs ?? logs} frozen={frozenLogs !== null} />
+          {/* <DebugPanel logs={frozenLogs ?? logs} frozen={frozenLogs !== null} /> */}
         </div>
       </div>
     </div>
