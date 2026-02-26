@@ -564,7 +564,7 @@ export default function Home() {
 
                 <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
                   <a
-                    href="https://arxiv.com"
+                    href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
                     className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none bg-blue-900 text-white hover:bg-blue-800 h-10 py-2 px-4 w-full sm:w-auto"
                   >
                     Read Full Article
