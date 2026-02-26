@@ -11,23 +11,21 @@ import {
 import { solveProblem } from "../lib/solver";
 import {
   Trophy,
-  Dices,
   Home,
   Plane,
   ChevronRight,
   Loader2,
   RotateCcw,
-  Terminal,
   Play,
   Pause,
 } from "lucide-react";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 // Phase machine for each (team, pot) draw step:
 //
 //   idle
-//     ↓ [Start] — pick first team, potIndex = team.pot (only draw from own pot onwards)
+//     ↓ [Start] — pick first team, potIndex = team.pot
 //   team-selected
 //     ↓ [Find Admissible] — compute preadmissible with CURRENT constraints
 //   showing-admissible
@@ -36,9 +34,8 @@ import {
 //     ↓ [Next Pot / Next Team / Finish]
 //   done
 //
-// Key optimization: a team from pot i only needs to find opponents from pots i..3.
-// Pots 0..i-1 were already decided when the earlier pot teams were drawn.
-//
+// A team from pot i only draws opponents from pots i..3.
+// Pots 0..i-1 were already decided when earlier pot teams were drawn.
 // Constraints are ONLY updated in showing-admissible → showing-result.
 
 type Phase =
@@ -48,11 +45,8 @@ type Phase =
   | "showing-result"
   | "done";
 
-// Tracks which cells were just filled so we can flash them green
-interface FlashSet {
-  // key: `${teamId}-${potIndex}-h` or `${teamId}-${potIndex}-a`
-  [key: string]: boolean;
-}
+// key: `${teamId}-${potIndex}-h` or `${teamId}-${potIndex}-a`
+type FlashSet = Record<string, boolean>;
 
 interface SimulatorState {
   phase: Phase;
@@ -63,7 +57,7 @@ interface SimulatorState {
   constraints: Constraints;
   isLoading: boolean;
   solverProgress: { tested: number; total: number } | null;
-  flash: FlashSet; // cells currently highlighted green
+  flash: FlashSet;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -101,13 +95,6 @@ const POT_COLORS = [
 
 const AUTO_SPEED_MS = 800;
 
-type LogLevel = "info" | "success" | "warn" | "solver";
-interface LogEntry {
-  level: LogLevel;
-  msg: string;
-  ts: string;
-}
-
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function shuffle<T>(arr: T[]): T[] {
@@ -142,7 +129,7 @@ function initialState(): SimulatorState {
   };
 }
 
-// For team from pot i, the first pot to draw is pot i (lower pots already settled)
+// A team from pot i starts drawing from pot i (lower pots already decided)
 function startingPotIndex(team: Team): number {
   return team.pot;
 }
@@ -173,11 +160,10 @@ function countMatches(c: Constraints): number {
   return Object.values(c.playedHome).reduce((acc, arr) => acc + arr.length, 0);
 }
 
-// Build flash keys for a just-drawn match:
-// - selected team's home cell (pot currentPotIndex)
-// - selected team's away cell (pot currentPotIndex)
-// - homeOpponent's away cell (pot team.pot) — they played away at team's ground
-// - awayOpponent's home cell (pot team.pot) — they hosted team
+// Flash the 4 cells affected by a newly drawn match:
+//   selected team's H cell and A cell for currentPotIndex
+//   homeOpp's A cell for team.pot   (homeOpp travels away to team)
+//   awayOpp's H cell for team.pot   (awayOpp hosts team at home)
 function buildFlashKeys(
   team: Team,
   potIndex: number,
@@ -208,7 +194,11 @@ function PotBadge({ potIndex, small }: { potIndex: number; small?: boolean }) {
 function TeamCard({ team, active }: { team: Team; active?: boolean }) {
   return (
     <div
-      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300 ${active ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md" : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"}`}
+      className={`flex items-center gap-3 rounded-xl px-4 py-3 border transition-all duration-300 ${
+        active
+          ? "border-[#cfa749] bg-[#cfa749]/10 shadow-md"
+          : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+      }`}
     >
       <PotBadge potIndex={team.pot} />
       <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
@@ -232,7 +222,7 @@ function AdmissibleList({
   return (
     <div className="mt-3">
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-        {couples.length} admissible pair{couples.length > 1 ? "s" : ""} in{"  "}
+        {couples.length} admissible pair{couples.length > 1 ? "s" : ""} in{" "}
         <PotBadge potIndex={potIndex} small />
       </p>
       <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
@@ -320,7 +310,11 @@ function ResultTable({
                 }`}
               >
                 <td
-                  className={`px-3 py-1.5 font-semibold truncate max-w-[7rem] ${isHighlighted ? "text-[#b45309] dark:text-[#cfa749]" : "text-slate-700 dark:text-slate-200"}`}
+                  className={`px-3 py-1.5 font-semibold truncate max-w-[7rem] ${
+                    isHighlighted
+                      ? "text-[#b45309] dark:text-[#cfa749]"
+                      : "text-slate-700 dark:text-slate-200"
+                  }`}
                 >
                   {team.name}
                 </td>
@@ -367,84 +361,16 @@ function ResultTable({
   );
 }
 
-function DebugPanel({ logs, frozen }: { logs: LogEntry[]; frozen: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  // Auto-scroll to bottom on new logs
-  useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [logs]);
-
-  const colors: Record<LogLevel, string> = {
-    info: "text-slate-400",
-    success: "text-green-400",
-    warn: "text-yellow-400",
-    solver: "text-sky-400",
-  };
-  return (
-    <div
-      className={`rounded-xl border overflow-hidden bg-slate-950 ${frozen ? "border-yellow-500/50" : "border-slate-200 dark:border-slate-700"}`}
-    >
-      <div className="px-3 py-2 border-b border-slate-800 flex items-center gap-2">
-        <Terminal className="h-3.5 w-3.5 text-slate-500" />
-        <span className="text-xs font-mono font-semibold text-slate-500 uppercase tracking-widest">
-          Debug log
-        </span>
-        {frozen && (
-          <span className="ml-1 text-[10px] font-mono font-bold text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 rounded px-1.5 py-0.5">
-            ⚠ FROZEN — fatal error
-          </span>
-        )}
-        <span className="ml-auto text-[10px] text-slate-600 font-mono">
-          {logs.length} entries
-        </span>
-      </div>
-      <div
-        ref={containerRef}
-        className="h-52 overflow-y-auto p-3 space-y-0.5 font-mono text-[11px]"
-      >
-        {logs.length === 0 ? (
-          <span className="text-slate-600">Waiting for draw to start…</span>
-        ) : (
-          logs.map((l, i) => (
-            <div key={i} className="flex gap-2 leading-5">
-              <span className="text-slate-600 shrink-0 select-none">
-                {l.ts}
-              </span>
-              <span className={colors[l.level]}>{l.msg}</span>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function ChampionsLeagueSimulator() {
   const [state, setState] = useState<SimulatorState>(initialState);
   const [activeTablePot, setActiveTablePot] = useState(0);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [frozenLogs, setFrozenLogs] = useState<LogEntry[] | null>(null);
+  const [fatalError, setFatalError] = useState(false);
 
-  // Auto mode
   const [autoMode, setAutoMode] = useState(false);
-  const autoRef = useRef(false); // mutable ref tracks live auto state for async loops
-
-  // Flash timeout cleanup
+  const autoRef = useRef(false);
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const log = useCallback((msg: string, level: LogLevel = "info") => {
-    const ts = new Date().toLocaleTimeString("en-GB", {
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-    setLogs((prev) => [...prev.slice(-400), { level, msg, ts }]);
-  }, []);
 
   const reset = useCallback(() => {
     autoRef.current = false;
@@ -452,14 +378,7 @@ export function ChampionsLeagueSimulator() {
     if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     setState(initialState());
     setActiveTablePot(0);
-    setFrozenLogs(null);
-    setLogs([
-      {
-        level: "warn",
-        msg: "Draw reset.",
-        ts: new Date().toLocaleTimeString("en-GB", { hour12: false }),
-      },
-    ]);
+    setFatalError(false);
   }, []);
 
   const currentTeam =
@@ -485,7 +404,6 @@ export function ChampionsLeagueSimulator() {
     }
   };
 
-  // Schedule flash clear after 900ms
   const scheduleFlashClear = useCallback(() => {
     if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     flashTimeoutRef.current = setTimeout(() => {
@@ -497,80 +415,40 @@ export function ChampionsLeagueSimulator() {
   const runSolver = useCallback(
     async (
       team: Team,
-      potIndex: number,
       constraints: Constraints,
       admissible: { home: Team; away: Team }[],
     ): Promise<{ home: Team; away: Team } | null> => {
       const shuffled = shuffle(admissible);
       const total = shuffled.length;
-      const names = (ids: number[]) =>
-        ids.map((id) => TEAMS[id]?.name ?? id).join(", ");
-
-      log(
-        `  Solver testing ${total} pair(s) for ${team.name} vs Pot ${potIndex + 1}`,
-        "solver",
-      );
 
       for (let i = 0; i < shuffled.length; i++) {
         const { home, away } = shuffled[i];
         setState((s) => ({ ...s, solverProgress: { tested: i, total } }));
-        log(`  [${i + 1}/${total}] H=${home.name} · A=${away.name}`, "solver");
-
-        const t0 = performance.now();
         const feasible = await solveProblem(team, constraints, { home, away });
-        const dt = (performance.now() - t0).toFixed(0);
-
         if (feasible) {
-          log(`  ✓ Feasible (${dt}ms)`, "success");
           setState((s) => ({ ...s, solverProgress: { tested: i + 1, total } }));
           return { home, away };
         }
-        log(`  ✗ Infeasible (${dt}ms)`, "info");
-        log(
-          `    ${team.name}:   home=[${names(constraints.playedHome[team.id] ?? [])}] away=[${names(constraints.playedAway[team.id] ?? [])}]`,
-          "info",
-        );
-        log(
-          `    H:${home.name}: home=[${names(constraints.playedHome[home.id] ?? [])}] away=[${names(constraints.playedAway[home.id] ?? [])}]`,
-          "info",
-        );
-        log(
-          `    A:${away.name}: home=[${names(constraints.playedHome[away.id] ?? [])}] away=[${names(constraints.playedAway[away.id] ?? [])}]`,
-          "info",
-        );
       }
-
-      log(
-        `  No feasible pair found for ${team.name} in Pot ${potIndex + 1}`,
-        "warn",
-      );
       return null;
     },
-    [log],
+    [],
   );
 
-  // ── Core step function — advances the state machine by one phase ─────────────
-  // Returns the new state after the step (used by auto mode to chain steps)
+  // ── Core step — advances the state machine by one phase ──────────────────────
   const step = useCallback(
     async (s: SimulatorState): Promise<SimulatorState | null> => {
       if (s.isLoading) return null;
-
-      // DONE
       if (s.phase === "done") return null;
 
-      // IDLE → TEAM-SELECTED: select first team, start at that team's pot
+      // IDLE → TEAM-SELECTED
       if (s.phase === "idle") {
         const team = s.drawOrder[0];
-        const potIndex = startingPotIndex(team);
-        log(
-          `▶ Draw started — Team 1/36: ${team.name} (Pot ${team.pot + 1}), starting at Pot ${potIndex + 1}`,
-          "info",
-        );
         const next: SimulatorState = {
           ...s,
           phase: "team-selected",
           drawIndex: 0,
-          currentPotIndex: potIndex,
+          currentPotIndex: startingPotIndex(team),
           flash: {},
         };
         setState(next);
@@ -578,36 +456,14 @@ export function ChampionsLeagueSimulator() {
         return next;
       }
 
-      // TEAM-SELECTED → SHOWING-ADMISSIBLE: compute pre-admissible with current constraints
+      // TEAM-SELECTED → SHOWING-ADMISSIBLE
       if (s.phase === "team-selected") {
         const team = s.drawOrder[s.drawIndex];
-        log(
-          `── ${team.name} (Pot ${team.pot + 1}) → Pot ${s.currentPotIndex + 1} opponents ──`,
-          "info",
-        );
-        log(
-          `  playedHome[${team.id}]: [${(s.constraints.playedHome[team.id] ?? []).join(", ")}]`,
-          "info",
-        );
-        log(
-          `  playedAway[${team.id}]: [${(s.constraints.playedAway[team.id] ?? []).join(", ")}]`,
-          "info",
-        );
-        log(
-          `  nationalities[${team.id}]: ${JSON.stringify(s.constraints.nationalities[team.id])}`,
-          "info",
-        );
-
         const admissible = preadmissibleOpponentCouples(
           team,
           s.currentPotIndex,
           s.constraints,
         );
-        log(
-          `  ${admissible.length} pre-admissible pair(s) found`,
-          admissible.length === 0 ? "warn" : "info",
-        );
-
         const next: SimulatorState = {
           ...s,
           phase: "showing-admissible",
@@ -617,19 +473,12 @@ export function ChampionsLeagueSimulator() {
         return next;
       }
 
-      // SHOWING-ADMISSIBLE → SHOWING-RESULT: run solver, update constraints
+      // SHOWING-ADMISSIBLE → SHOWING-RESULT
       if (s.phase === "showing-admissible") {
         const team = s.drawOrder[s.drawIndex];
 
         if (s.admissible.length === 0) {
-          log(
-            `✗ FATAL: empty admissible list for ${team.name} Pot ${s.currentPotIndex + 1}`,
-            "warn",
-          );
-          setLogs((cur) => {
-            setFrozenLogs(cur);
-            return cur;
-          });
+          setFatalError(true);
           const next: SimulatorState = { ...s, phase: "done" };
           setState(next);
           return null;
@@ -641,23 +490,10 @@ export function ChampionsLeagueSimulator() {
           solverProgress: { tested: 0, total: s.admissible.length },
         }));
 
-        const result = await runSolver(
-          team,
-          s.currentPotIndex,
-          s.constraints,
-          s.admissible,
-        );
+        const result = await runSolver(team, s.constraints, s.admissible);
 
         if (!result) {
-          log(
-            `✗ FATAL: no feasible match for ${team.name} Pot ${s.currentPotIndex + 1}`,
-            "warn",
-          );
-          log(`  ↑ Scroll up to inspect tested pairs.`, "warn");
-          setLogs((cur) => {
-            setFrozenLogs(cur);
-            return cur;
-          });
+          setFatalError(true);
           const next: SimulatorState = {
             ...s,
             isLoading: false,
@@ -668,14 +504,9 @@ export function ChampionsLeagueSimulator() {
           return null;
         }
 
-        // Match confirmed — update constraints for both directions:
-        //   team (H) vs result.home (A)
-        //   result.away (H) vs team (A)
-        log(
-          `✓ ${team.name} (H) vs ${result.home.name} (A)  |  ${result.away.name} (H) vs ${team.name} (A)`,
-          "success",
-        );
-
+        // Match confirmed:
+        //   team (H) vs result.home (A)  →  team hosts result.home
+        //   result.away (H) vs team (A)  →  result.away hosts team
         const updatedConstraints = updateConstraints(
           updateConstraints(s.constraints, team, result.home),
           result.away,
@@ -702,9 +533,8 @@ export function ChampionsLeagueSimulator() {
         return next;
       }
 
-      // SHOWING-RESULT → TEAM-SELECTED or DONE: advance cursor
+      // SHOWING-RESULT → TEAM-SELECTED or DONE
       if (s.phase === "showing-result") {
-        // Next pot for same team (still within pots 0..3)
         if (s.currentPotIndex < 3) {
           const next: SimulatorState = {
             ...s,
@@ -716,28 +546,19 @@ export function ChampionsLeagueSimulator() {
           return next;
         }
 
-        // All pots done for this team — move to next team
         const nextIndex = s.drawIndex + 1;
-
         if (nextIndex >= s.drawOrder.length) {
-          log("🏆 Draw complete!", "success");
           const next: SimulatorState = { ...s, phase: "done", flash: {} };
           setState(next);
           return null;
         }
 
         const nextTeam = s.drawOrder[nextIndex];
-        const potIndex = startingPotIndex(nextTeam);
-        log(
-          `▶ Team ${nextIndex + 1}/36: ${nextTeam.name} (Pot ${nextTeam.pot + 1}), starting at Pot ${potIndex + 1}`,
-          "info",
-        );
-
         const next: SimulatorState = {
           ...s,
           phase: "team-selected",
           drawIndex: nextIndex,
-          currentPotIndex: potIndex,
+          currentPotIndex: startingPotIndex(nextTeam),
           admissible: [],
           flash: {},
         };
@@ -748,10 +569,10 @@ export function ChampionsLeagueSimulator() {
 
       return null;
     },
-    [log, runSolver, scheduleFlashClear],
+    [runSolver, scheduleFlashClear],
   );
 
-  // ── Manual next button ───────────────────────────────────────────────────────
+  // ── Manual next ───────────────────────────────────────────────────────────────
   const handleNext = useCallback(async () => {
     if (state.isLoading) return;
     if (state.phase === "done") {
@@ -761,7 +582,7 @@ export function ChampionsLeagueSimulator() {
     await step(state);
   }, [state, step, reset]);
 
-  // ── Auto mode loop ───────────────────────────────────────────────────────────
+  // ── Auto mode loop ────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!autoMode) {
       autoRef.current = false;
@@ -771,16 +592,13 @@ export function ChampionsLeagueSimulator() {
 
     const delay = (ms: number) =>
       new Promise<void>((res) => setTimeout(res, ms));
-    const speedMs = AUTO_SPEED_MS;
 
     const run = async () => {
-      // Get latest state via a ref-like approach: re-read from setState callback
       let current: SimulatorState | null = null;
       setState((s) => {
         current = s;
         return s;
       });
-      // Wait one tick for current to be populated
       await delay(0);
       if (!current) return;
 
@@ -796,12 +614,11 @@ export function ChampionsLeagueSimulator() {
         }
         current = next;
 
-        // Pause between showing-result steps so flash animation is visible
         if (
           next.phase === "showing-result" ||
           next.phase === "showing-admissible"
         ) {
-          await delay(speedMs);
+          await delay(AUTO_SPEED_MS);
         }
       }
     };
@@ -814,10 +631,7 @@ export function ChampionsLeagueSimulator() {
     if (autoMode) {
       autoRef.current = false;
       setAutoMode(false);
-    } else {
-      if (state.phase === "done") return;
-      setAutoMode(true);
-    }
+    } else if (state.phase !== "done") setAutoMode(true);
   };
 
   const progress =
@@ -850,7 +664,7 @@ export function ChampionsLeagueSimulator() {
       <div className="grid md:grid-cols-[320px_1fr] gap-6 items-start">
         {/* ── Left panel ── */}
         <div className="space-y-4">
-          {/* Current team card + pot indicators */}
+          {/* Current team + pot indicators */}
           <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
             <div className="p-4">
               {currentTeam ? (
@@ -871,7 +685,7 @@ export function ChampionsLeagueSimulator() {
                         null &&
                       getAwayOpponent(currentTeam.id, pi, state.constraints) !==
                         null;
-                    const isSkipped = pi < startingPotIndex(currentTeam); // already decided, not drawn now
+                    const isSkipped = pi < startingPotIndex(currentTeam);
                     const isCurrent =
                       pi === state.currentPotIndex &&
                       (state.phase === "team-selected" ||
@@ -934,26 +748,23 @@ export function ChampionsLeagueSimulator() {
               )}
             </button>
 
-            {/* Auto mode button */}
             {state.phase !== "done" && (
-              <div className="flex gap-1">
-                <button
-                  onClick={toggleAuto}
-                  disabled={state.isLoading && !autoMode}
-                  title={autoMode ? "Pause auto" : "Start auto draw"}
-                  className={`flex items-center justify-center gap-1.5 rounded-2xl px-3 py-3.5 font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] ${
-                    autoMode
-                      ? "bg-amber-500 hover:bg-amber-600 text-white"
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white"
-                  }`}
-                >
-                  {autoMode ? (
-                    <Pause className="h-4 w-4" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
+              <button
+                onClick={toggleAuto}
+                disabled={state.isLoading && !autoMode}
+                title={autoMode ? "Pause auto" : "Start auto draw"}
+                className={`flex items-center justify-center rounded-2xl px-4 py-3.5 font-bold text-sm shadow-md transition-all duration-200 active:scale-[0.98] ${
+                  autoMode
+                    ? "bg-amber-500 hover:bg-amber-600 text-white"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white"
+                }`}
+              >
+                {autoMode ? (
+                  <Pause className="h-4 w-4" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+              </button>
             )}
           </div>
 
@@ -1015,9 +826,9 @@ export function ChampionsLeagueSimulator() {
               );
               return homeOpp && awayOpp ? (
                 <div className="rounded-2xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 overflow-hidden shadow-sm">
-                  <div className="px-4 py-3 align-middle">
+                  <div className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <Trophy className="h-4 w-4 text-green-700 dark:text-green-300 flex-shrink-0" />
+                      <Trophy className="h-4 w-4 text-green-700 dark:text-green-300 shrink-0" />
                       <span className="text-sm text-slate-700 dark:text-slate-200">
                         H: <span className="font-semibold">{homeOpp.name}</span>
                         <span className="mx-2 text-slate-400">|</span>
@@ -1059,12 +870,12 @@ export function ChampionsLeagueSimulator() {
           />
 
           {state.phase === "done" &&
-            (frozenLogs ? (
+            (fatalError ? (
               <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/5 px-4 py-3 flex items-center gap-2">
                 <span className="text-yellow-400 shrink-0 text-base">⚠</span>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 font-medium">
-                  Fatal: no feasible match found. Read the frozen log, then
-                  press Reset.
+                  Fatal: no feasible match found. Press Reset to start a new
+                  draw.
                 </p>
               </div>
             ) : (
@@ -1075,8 +886,6 @@ export function ChampionsLeagueSimulator() {
                 </p>
               </div>
             ))}
-
-          {/* <DebugPanel logs={frozenLogs ?? logs} frozen={frozenLogs !== null} /> */}
         </div>
       </div>
     </div>
