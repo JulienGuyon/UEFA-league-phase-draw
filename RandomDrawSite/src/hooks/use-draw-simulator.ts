@@ -206,6 +206,8 @@ export function useDrawSimulator() {
       for (let i = 0; i < shuffled.length; i++) {
         const { home, away } = shuffled[i];
         setState((s) => ({ ...s, solverProgress: { tested: i, total } }));
+        // Yield to browser before heavy WASM call — critical for Safari iOS
+        await new Promise<void>((r) => setTimeout(r, 0));
         const feasible = await solveProblem(team, constraints, { home, away });
         if (feasible) {
           setState((s) => ({ ...s, solverProgress: { tested: i + 1, total } }));
@@ -355,6 +357,11 @@ export function useDrawSimulator() {
     await step(state);
   }, [state, step, reset]);
 
+  // Store latest state in a ref so the auto-step chain can read it
+  // without depending on React render cycles or setState callbacks.
+  const stateRef = useRef<SimulatorState>(state);
+  stateRef.current = state;
+
   useEffect(() => {
     if (!autoMode) {
       autoRef.current = false;
@@ -362,40 +369,42 @@ export function useDrawSimulator() {
     }
     autoRef.current = true;
 
-    const delay = (ms: number) =>
-      new Promise<void>((res) => setTimeout(res, ms));
+    // Each step is scheduled as a separate browser task via setTimeout.
+    // This avoids a long-running while-loop that Safari iOS kills.
+    const scheduleStep = (delayMs: number) => {
+      setTimeout(async () => {
+        if (!autoRef.current) return;
 
-    const run = async () => {
-      let current: SimulatorState | null = null;
-      setState((s) => {
-        current = s;
-        return s;
-      });
-      await delay(0);
-      if (!current) return;
-
-      while (autoRef.current) {
-        const s = current as SimulatorState;
-        if (s.phase === "done" || s.isLoading) break;
+        const s = stateRef.current;
+        if (s.phase === "done" || s.isLoading) {
+          autoRef.current = false;
+          setAutoMode(false);
+          return;
+        }
 
         const next = await step(s);
+
+        if (!autoRef.current) return;
         if (!next || next.phase === "done") {
           autoRef.current = false;
           setAutoMode(false);
-          break;
+          return;
         }
-        current = next;
 
-        if (
-          next.phase === "showing-result" ||
-          next.phase === "showing-admissible"
-        ) {
-          await delay(AUTO_SPEED_MS);
-        }
-      }
+        const pauseMs =
+          next.phase === "showing-result" || next.phase === "showing-admissible"
+            ? AUTO_SPEED_MS
+            : 16;
+
+        scheduleStep(pauseMs);
+      }, delayMs);
     };
 
-    run();
+    scheduleStep(0);
+
+    return () => {
+      autoRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoMode]);
 

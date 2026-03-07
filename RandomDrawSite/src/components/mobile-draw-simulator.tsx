@@ -322,7 +322,7 @@ export function MobileDrawSimulator() {
         </div>
       )}
 
-      {/* Result flash */}
+      {/* Result flash
       {state.phase === "showing-result" && currentTeam && !isBrowsing &&
         (() => {
           const homeOpp = getHomeOpponent(
@@ -337,7 +337,6 @@ export function MobileDrawSimulator() {
           );
           return homeOpp && awayOpp ? (
             <div className="rounded-lg border border-[var(--uefa-blue)]/20 bg-[var(--uefa-blue)]/5 px-3 py-2.5 flex items-center gap-2">
-              <Trophy className="h-3.5 w-3.5 text-[var(--uefa-blue)] shrink-0" />
               <span className="text-xs text-[hsl(var(--foreground))]">
                 <Home className="h-3 w-3 inline mr-0.5" />
                 <span className="font-semibold">{homeOpp.name}</span>
@@ -347,7 +346,7 @@ export function MobileDrawSimulator() {
               </span>
             </div>
           ) : null;
-        })()}
+        })()} */}
 
       {/* Done status */}
       {state.phase === "done" &&
