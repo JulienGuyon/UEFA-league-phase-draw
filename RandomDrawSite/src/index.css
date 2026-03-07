@@ -1,82 +1,206 @@
 @import "tailwindcss";
 
-/* Base styles */
+@font-face {
+  font-family: "Aventa";
+  src: url("/fonts/Aventa-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 84% 5%;
+    --background: 220 20% 97%;
+    --foreground: 224 50% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 222 84% 5%;
+    --card-foreground: 224 50% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 84% 5%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --radius: 0.5rem;
+    --popover-foreground: 224 50% 10%;
+    --primary: 228 75% 21%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 94%;
+    --secondary-foreground: 224 50% 10%;
+    --muted: 220 16% 94%;
+    --muted-foreground: 220 10% 46%;
+    --accent: 42 60% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 16% 90%;
+    --input: 220 16% 90%;
+    --ring: 228 75% 21%;
+    --radius: 0.75rem;
+
+    --uefa-blue: #0e1e5b;
+    --uefa-blue-light: #1a3a8a;
+    --uefa-gold: #c9a84c;
+    --uefa-gold-light: #d4b968;
+    --uefa-gold-dark: #a88a34;
   }
 
   .dark {
-    --background: 222 84% 5%;
-    --foreground: 210 40% 98%;
-    --card: 222 84% 5%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 84% 5%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 33% 18%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 18%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 18%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 18%;
-    --input: 217 33% 18%;
-    --ring: 224 76% 48%;
+    --background: 224 50% 6%;
+    --foreground: 220 20% 95%;
+    --card: 224 40% 10%;
+    --card-foreground: 220 20% 95%;
+    --popover: 224 40% 10%;
+    --popover-foreground: 220 20% 95%;
+    --primary: 42 60% 50%;
+    --primary-foreground: 224 50% 6%;
+    --secondary: 224 30% 16%;
+    --secondary-foreground: 220 20% 95%;
+    --muted: 224 30% 16%;
+    --muted-foreground: 220 10% 55%;
+    --accent: 228 60% 40%;
+    --accent-foreground: 220 20% 95%;
+    --destructive: 0 60% 40%;
+    --destructive-foreground: 220 20% 95%;
+    --border: 224 30% 18%;
+    --input: 224 30% 18%;
+    --ring: 42 60% 50%;
   }
 
-  /* Custom background patterns */
-  .bg-pattern {
-    background-color: #f8fafc;
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23e2e8f0' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  * {
+    border-color: hsl(var(--border));
   }
 
-  /* Custom styling for the simulator section */
-  .simulator-container {
-    background-color: white;
-    /* @apply rounded-lg shadow-lg p-6; */
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Animation for draw process */
-  @keyframes pulse {
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+  }
+}
+
+@layer components {
+  .font-display {
+    font-family: "Aventa", "Inter", sans-serif;
+    font-weight: 300;
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  }
+
+  .glass-dark {
+    background: rgba(14, 30, 91, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .section-card {
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    overflow: hidden;
+    position: relative;
+  }
+
+  .section-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(
+      90deg,
+      var(--uefa-blue),
+      var(--uefa-gold),
+      var(--uefa-blue)
+    );
+    opacity: 0.8;
+  }
+
+  .hover-lift {
+    transition: transform 0.25s cubic-bezier(0.33, 1, 0.68, 1),
+      box-shadow 0.25s cubic-bezier(0.33, 1, 0.68, 1);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px -12px rgba(14, 30, 91, 0.15);
+  }
+
+  .bg-grid {
+    background-image: radial-gradient(
+      circle at 1px 1px,
+      hsl(var(--border)) 1px,
+      transparent 0
+    );
+    background-size: 32px 32px;
+  }
+
+  .gradient-text {
+    background: linear-gradient(
+      135deg,
+      var(--uefa-gold-light),
+      var(--uefa-gold),
+      var(--uefa-gold-dark)
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+
+@layer utilities {
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes subtle-pulse {
     0%,
     100% {
       opacity: 1;
     }
     50% {
-      opacity: 0.5;
+      opacity: 0.6;
     }
   }
 
-  .animate-pulse {
-    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
   }
 
-  .uefa-stars {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/%3E%3C/svg%3E");
-    background-size: 24px 24px;
-    background-repeat: repeat-x;
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out both;
+  }
+
+  .animate-subtle-pulse {
+    animation: subtle-pulse 2s ease-in-out infinite;
+  }
+
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.06) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 3s ease-in-out infinite;
   }
 }

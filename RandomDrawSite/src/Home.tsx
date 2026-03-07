@@ -1,13 +1,7 @@
 import { ChampionsLeagueSimulator } from "./components/champions-league-simulator";
+import { MobileDrawSimulator } from "./components/mobile-draw-simulator";
+import { useIsMobile } from "./hooks/use-is-mobile";
 import { Button } from "./components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-} from "./components/ui/card";
-import { Badge } from "./components/ui/badge";
 import {
   Github,
   ExternalLink,
@@ -18,16 +12,17 @@ import {
   Shield,
   Dices,
   Trophy,
-  Star,
   Zap,
   Sparkles,
   Lightbulb,
   BarChart3,
-  Flame,
   Compass,
   BookOpenText,
-  Code,
+  ArrowUpRight,
+  Menu,
+  X,
 } from "lucide-react";
+import { useState } from "react";
 
 const keywords = [
   "Fairness in Sports",
@@ -40,618 +35,578 @@ const keywords = [
   "UEFA Champions League",
 ];
 
-export default function Home() {
+const authors = [
+  "Adle Ben Salem",
+  "Thomas Buchholtzer",
+  "Julien Guyon",
+  "Mathieu Tanré",
+];
+
+const navItems = [
+  { href: "#introduction", label: "Overview" },
+  { href: "#simulator", label: "Simulator" },
+  { href: "#counter-example", label: "Research" },
+  { href: "#approach", label: "Methodology" },
+  { href: "#numerical-analysis", label: "Analysis" },
+];
+
+function FeatureCard({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+}) {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Hero Section with gradient background */}
-        <section className="relative z-10 text-center mb-16 rounded-3xl overflow-hidden bg-[#0e1e5b] p-8 shadow-xl">
-          <div className="absolute inset-0 bg-[url('/images/champions-league-pattern.png')] opacity-10 mix-blend-overlay"></div>
-          <h1 className="text-3xl md:text-5xl font-extrabold mb-4 mt-4 text-white drop-shadow-md">
-            Drawing League Phase Matchups in the <br />
-            <span className="text-[#cfa749]">
-              New UEFA Champions League Format
-            </span>
-          </h1>
+    <div className="group hover-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6 transition-all">
+      <div className="mb-3 md:mb-4 inline-flex items-center justify-center rounded-lg bg-[var(--uefa-blue)]/8 p-2 md:p-2.5 transition-colors group-hover:bg-[var(--uefa-blue)]/12">
+        <Icon className="h-4 w-4 md:h-5 md:w-5 text-[var(--uefa-blue)]" />
+      </div>
+      <h3 className="mb-1.5 md:mb-2 text-sm md:text-base font-semibold text-[hsl(var(--foreground))]">
+        {title}
+      </h3>
+      <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
+        {description}
+      </p>
+    </div>
+  );
+}
 
-          <p className="text-xl text-white/80 mb-8 max-w-3xl mx-auto">
-            A mathematical approach to ensure fairness, feasibility, and
-            competitive balance
-          </p>
+function SectionHeader({
+  icon: Icon,
+  title,
+  description,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-8 md:mb-10 text-center">
+      <div className="mt-3 flex items-center justify-center gap-2 md:gap-3">
+        <Icon className="h-5 w-5 md:h-7 md:w-7 text-[var(--uefa-gold)]" />
+        <h2 className="font-display text-2xl md:text-3xl lg:text-4xl tracking-tight text-[hsl(var(--foreground))]">
+          {title}
+        </h2>
+      </div>
+      <p className="mx-auto mt-3 md:mt-4 max-w-2xl text-sm md:text-base text-[hsl(var(--muted-foreground))]">
+        {description}
+      </p>
+    </div>
+  );
+}
 
-          {/* Keywords Display */}
-          <div className="flex flex-wrap justify-center gap-2 mb-8 max-w-3xl mx-auto">
-            {keywords.map((keyword, index) => (
-              <span
-                key={index}
-                className="inline-flex items-center px-3 py-1 rounded-full text-xs md:text-sm bg-white/15 text-white backdrop-blur-sm border border-white/20 hover:bg-white/25 transition-colors"
+function ImageFigure({
+  src,
+  alt,
+  caption,
+  className = "",
+}: {
+  src: string;
+  alt: string;
+  caption?: string;
+  className?: string;
+}) {
+  return (
+    <figure className={`group ${className}`}>
+      <div className="overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-sm transition-shadow hover:shadow-md">
+        <img
+          src={src}
+          alt={alt}
+          className="w-full h-auto block"
+          loading="lazy"
+        />
+      </div>
+      {caption && (
+        <figcaption className="mt-2 md:mt-3 text-center text-[10px] md:text-xs text-[hsl(var(--muted-foreground))]">
+          {caption}
+        </figcaption>
+      )}
+    </figure>
+  );
+}
+
+function MobileNav({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[60] md:hidden">
+      <div
+        className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="absolute top-0 right-0 w-64 h-full bg-[hsl(var(--card))] shadow-xl p-6 flex flex-col gap-1">
+        <div className="flex justify-between items-center mb-6">
+          <span className="text-sm font-semibold text-[hsl(var(--foreground))]">
+            Navigation
+          </span>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-md hover:bg-[hsl(var(--muted))]"
+          >
+            <X className="h-4 w-4 text-[hsl(var(--muted-foreground))]" />
+          </button>
+        </div>
+        {navItems.map((item) => (
+          <a
+            key={item.href}
+            href={item.href}
+            onClick={onClose}
+            className="rounded-lg px-3 py-2.5 text-sm font-medium text-[hsl(var(--foreground))] transition-colors hover:bg-[hsl(var(--muted))]"
+          >
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default function Home() {
+  const isMobile = useIsMobile();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen">
+      {/* Navigation */}
+      <nav className="glass fixed top-0 left-0 right-0 z-50 border-b border-white/10">
+        <div className="mx-auto flex h-12 md:h-14 max-w-6xl items-center justify-between px-4 md:px-6">
+          <a
+            href="#"
+            className="flex items-center gap-2 font-semibold text-[var(--uefa-blue)] text-sm"
+          >
+            <Trophy className="h-4 w-4 text-[var(--uefa-gold)]" />
+            <span className="hidden sm:inline">UCL Draw Research</span>
+          </a>
+
+          {/* Desktop nav links */}
+          <div className="hidden md:flex items-center gap-1">
+            {navItems.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
               >
-                {keyword}
-              </span>
+                {item.label}
+              </a>
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-4 justify-center mb-8">
-            <Badge
-              variant="outline"
-              className="text-white border-white/30 px-3 py-1"
-            >
-              Adle Ben Salem
-            </Badge>
-            <Badge
-              variant="outline"
-              className="text-white border-white/30 px-3 py-1"
-            >
-              Thomas Buchholtzer
-            </Badge>
-            <Badge
-              variant="outline"
-              className="text-white border-white/30 px-3 py-1"
-            >
-              Julien Guyon
-            </Badge>
-            <Badge
-              variant="outline"
-              className="text-white border-white/30 px-3 py-1"
-            >
-              Mathieu Tanré
-            </Badge>
+          {/* Mobile hamburger */}
+          <button
+            className="md:hidden p-1.5 rounded-md hover:bg-[hsl(var(--muted))]"
+            onClick={() => setMobileNavOpen(true)}
+          >
+            <Menu className="h-5 w-5 text-[hsl(var(--foreground))]" />
+          </button>
+        </div>
+      </nav>
+
+      <MobileNav
+        isOpen={mobileNavOpen}
+        onClose={() => setMobileNavOpen(false)}
+      />
+
+      <main className="mx-auto max-w-6xl px-4 md:px-6 pt-12 md:pt-14">
+        {/* Hero Section */}
+        <section className="relative overflow-hidden rounded-2xl bg-[var(--uefa-blue)] px-5 py-10 mt-4 md:px-16 md:py-24 md:mt-8">
+          <div className="absolute inset-0 bg-grid opacity-[0.04]" />
+          <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-[var(--uefa-gold)]/10 blur-3xl" />
+          <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-white/5 blur-3xl" />
+
+          <div className="relative z-10 mx-auto max-w-3xl text-center">
+            <h1 className="font-display text-2xl leading-tight text-white sm:text-4xl md:text-6xl md:leading-tight">
+              Drawing League Phase Matchups in the{" "}
+              <span className="gradient-text">
+                New UEFA Champions League Format
+              </span>
+            </h1>
+
+            <p className="mx-auto mt-4 md:mt-6 max-w-xl text-sm md:text-lg text-white/60">
+              A mathematical approach to ensure fairness, feasibility, and
+              competitive balance
+            </p>
+
+            {/* Keywords — show fewer on mobile */}
+            <div className="mt-5 md:mt-8 flex flex-wrap justify-center gap-1.5 md:gap-2">
+              {keywords.slice(0, isMobile ? 4 : keywords.length).map((keyword) => (
+                <span
+                  key={keyword}
+                  className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 md:px-3 md:py-1 text-[10px] md:text-xs text-white/70 backdrop-blur-sm"
+                >
+                  {keyword}
+                </span>
+              ))}
+            </div>
+
+            {/* Authors — horizontal scroll on mobile */}
+            <div className="mt-5 md:mt-8 flex flex-wrap justify-center gap-2 md:gap-3">
+              {authors.map((name) => (
+                <span
+                  key={name}
+                  className="rounded-full border border-white/15 px-2.5 py-0.5 md:px-3.5 md:py-1 text-xs md:text-sm font-medium text-white/80"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+
+            {/* CTA buttons — stack on mobile */}
+            <div className="mt-6 md:mt-10 flex flex-col sm:flex-row flex-wrap justify-center gap-2 md:gap-3">
+              <Button
+                asChild
+                className="rounded-full bg-white text-[var(--uefa-blue)] hover:bg-white/90 font-medium px-5 h-9 md:h-10 text-xs md:text-sm"
+              >
+                <a
+                  href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Newspaper className="mr-2 h-3.5 w-3.5 md:h-4 md:w-4" />
+                  Read the Article
+                </a>
+              </Button>
+              <div className="flex gap-2 justify-center">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium px-4 md:px-5 h-9 md:h-10 text-xs md:text-sm flex-1 sm:flex-initial"
+                >
+                  <a
+                    href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Github className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
+                    Code
+                  </a>
+                </Button>
+                <Button
+                  asChild
+                  variant="outline"
+                  className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium px-4 md:px-5 h-9 md:h-10 text-xs md:text-sm flex-1 sm:flex-initial"
+                >
+                  <a href="#simulator">
+                    <Dices className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
+                    Simulator
+                  </a>
+                </Button>
+              </div>
+            </div>
           </div>
+        </section>
 
-          <div className="flex flex-wrap gap-6 justify-center mb-6">
-            <a
-              href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
-              className="group"
-              aria-label="GitHub"
-            >
-              <Button
-                variant="secondary"
-                className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-sm"
-              >
-                <Github className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
-                See the code
-              </Button>
-            </a>
-            <a
-              href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
-              className="group"
-              aria-label="SSRN"
-            >
-              <Button
-                variant="secondary"
-                className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-sm"
-              >
-                <Newspaper className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
-                Read the article
-              </Button>
-            </a>
+        {/* Format Overview */}
+        <section id="introduction" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <SectionHeader
+            icon={Trophy}
+            title="New Format Overview"
+            description="Starting in 2024, the UEFA Champions League introduces a revolutionary format with 36 teams in a single league table."
+          />
 
+          <div className="mb-6 md:mb-8 flex justify-center">
             <Button
               asChild
-              variant="secondary"
-              className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-sm"
+              variant="outline"
+              className="rounded-full text-xs font-medium"
             >
-              <a href="#simulator">
-                <Dices className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform" />
-                Try the Simulator
+              <a
+                href="https://www.uefa.com/uefachampionsleague/news/0268-12157d69ce2d-9f011c70f6fa-1000--new-format-for-champions-league-post-2024-everything-you-ne/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                Official UEFA Rules
               </a>
             </Button>
           </div>
 
-          <div className="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent"></div>
+          <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
+            <FeatureCard
+              icon={Calendar}
+              title="8 Match Days"
+              description="Each team plays exactly eight matches against eight different opponents."
+            />
+            <FeatureCard
+              icon={BarChart4}
+              title="4 Seeding Pots"
+              description="Teams are divided into four pots of nine, based on UEFA coefficient."
+            />
+            <FeatureCard
+              icon={Award}
+              title="Balanced Competition"
+              description="Each team faces two teams from each pot — one home, one away."
+            />
+            <FeatureCard
+              icon={Shield}
+              title="Country Protection"
+              description="Teams cannot face opponents from the same country."
+            />
+            <FeatureCard
+              icon={Zap}
+              title="Scheduling Integrity"
+              description="All matches must fit within pre-defined match days."
+            />
+            <FeatureCard
+              icon={Sparkles}
+              title="Match Consistency"
+              description="Equal mix of home and away matches ensures parity."
+            />
+          </div>
         </section>
 
-        {/* New Format Overview */}
-        <section id="introduction" className="py-12 mb-12">
-          <Card className="shadow-xl border-0 overflow-hidden bg-white dark:bg-slate-900">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-[#0e1e5b]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
-            <CardHeader className="text-center relative z-10">
-              <div className="flex items-center justify-center mb-4">
-                <Trophy className="h-8 w-8 text-[#cfa749] mr-3" />
-                <CardTitle className="text-2xl md:text-3xl font-bold text-[#0e1e5b] dark:text-white">
-                  New Format Overview
-                </CardTitle>
-              </div>
-              <CardDescription className="text-lg max-w-3xl mx-auto">
-                Starting in 2024, the UEFA Champions League introduces a
-                revolutionary format with 36 teams in a single league table.
-              </CardDescription>
-              <div className="mt-6">
-                <Button
-                  asChild
-                  variant="outline"
-                  className="rounded-full border-[#0e1e5b]/20 hover:bg-[#0e1e5b]/5 hover:text-[#0e1e5b] dark:border-white/20 dark:hover:bg-white/10 dark:hover:text-white"
-                >
-                  <a
-                    href="https://www.uefa.com/uefachampionsleague/news/0268-12157d69ce2d-9f011c70f6fa-1000--new-format-for-champions-league-post-2024-everything-you-ne/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Official UEFA Rules
-                  </a>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="relative z-10">
-              <div className="grid md:grid-cols-3 gap-6">
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <Calendar className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      8 Match Days
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      Each team plays exactly eight matches against eight
-                      different opponents, scheduled across eight match days.
-                    </p>
-                  </CardContent>
-                </Card>
+        {/* Simulator */}
+        <section id="simulator" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <div className="section-card p-4 md:p-8 lg:p-12">
+            <SectionHeader
+              icon={Dices}
+              title="Draw Simulator"
+              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator."
+            />
 
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <BarChart4 className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      4 Seeding Pots
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      Teams are divided into four pots of nine teams each, based
-                      on their UEFA coefficient ranking.
-                    </p>
-                  </CardContent>
-                </Card>
+            {/* Draw procedure image — hidden on mobile */}
+            <div className="hidden md:flex mb-10 justify-center">
+              <ImageFigure
+                src={`${import.meta.env.BASE_URL}images/draw-procedure.png`}
+                alt="Template schedule showing the assignment of teams to match days"
+                caption="Draw Algorithm Procedure"
+                className="max-w-2xl"
+              />
+            </div>
 
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <Award className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      Balanced Competition
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      Each team faces exactly two teams from each pot - one home
-                      match and one away match.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <Shield className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      Country Protection
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      Teams cannot face opponents from the same country during
-                      the league phase.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <Zap className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      Scheduling Integrity
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      All matches must be scheduled within the pre-defined match
-                      days with specific constraints.
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card className="overflow-hidden border border-slate-200 dark:border-slate-800 hover:shadow-md transition-all group">
-                  <div className="h-1 w-full bg-[#0e1e5b] dark:bg-[#cfa749]"></div>
-                  <CardContent className="p-6 pt-8">
-                    <div className="rounded-full bg-[#0e1e5b]/10 dark:bg-[#cfa749]/10 p-3 w-fit mb-4 group-hover:scale-110 transition-transform">
-                      <Sparkles className="h-6 w-6 text-[#0e1e5b] dark:text-[#cfa749]" />
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 text-[#0e1e5b] dark:text-white">
-                      Match Consistency
-                    </h3>
-                    <p className="text-slate-600 dark:text-slate-400">
-                      Each team plays an equal mix of home and away matches to
-                      ensure parity across all participants.
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* Simulator Section */}
-        <section id="simulator" className="py-12 mb-12 scroll-mt-16">
-          <Card className="shadow-xl border-0 overflow-hidden bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-950">
-            <div className="absolute top-0 left-0 w-64 h-64 bg-[#cfa749]/5 rounded-full -translate-y-1/2 -translate-x-1/2 blur-3xl"></div>
-            <CardHeader className="text-center relative z-10">
-              <Badge className="mx-auto mb-4 bg-[#0e1e5b]/10 text-[#0e1e5b] hover:bg-[#0e1e5b]/20 dark:bg-[#cfa749]/10 dark:text-[#cfa749] dark:hover:bg-[#cfa749]/20">
-                Interactive Tool
-              </Badge>
-              <div className="flex items-center justify-center mb-4">
-                <Dices className="h-8 w-8 text-[#cfa749] dark:text-[#cfa749] mr-3" />
-                <CardTitle className="text-2xl md:text-3xl font-bold text-[#0e1e5b] dark:text-white">
-                  Draw Simulator
-                </CardTitle>
-              </div>
-              <CardDescription className="text-lg max-w-3xl mx-auto">
-                We modelized UEFA constraints using Integer Linear Programming
-                in Julia. Try our interactive simulator to understand how the
-                new Champions League draw works.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="relative z-10 p-6">
-              <CardContent className="relative z-10 p-6 flex justify-center items-center">
-                <div className="flex justify-center mb-6">
-                  <div className="relative group">
-                    <img
-                      src={`${
-                        import.meta.env.BASE_URL
-                      }images/draw-procedure.png`}
-                      alt="Template schedule showing the assignment of teams to match days"
-                      className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-end justify-center">
-                      <Badge className="mb-4 bg-white/80 text-[#0e1e5b] hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black/90 backdrop-blur-sm">
-                        <Code className="h-3.5 w-3.5 mr-1" /> Draw Algorithm
-                        Procedure
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-              <ChampionsLeagueSimulator />
-            </CardContent>
-          </Card>
+            {/* Conditional simulator */}
+            {isMobile ? <MobileDrawSimulator /> : <ChampionsLeagueSimulator />}
+          </div>
         </section>
 
         {/* Counter Example */}
-        <section id="counter-example" className="py-12 mb-12 scroll-mt-16">
-          <Card className="shadow-xl border-0 overflow-hidden bg-white dark:bg-slate-900">
-            <CardHeader className="text-center">
-              <Badge className="mx-auto mb-4 bg-[#0e1e5b]/10 text-[#0e1e5b] hover:bg-[#0e1e5b]/20 dark:bg-[#cfa749]/10 dark:text-[#cfa749] dark:hover:bg-[#cfa749]/20">
-                Research Findings
-              </Badge>
-              <div className="flex items-center justify-center mb-4">
-                <Lightbulb className="h-8 w-8 text-[#cfa749] mr-3" />
-                <CardTitle className="text-2xl md:text-3xl font-bold text-[#0e1e5b] dark:text-white">
-                  New Format Scheduling Challenges
-                </CardTitle>
-              </div>
-              <CardDescription className="text-lg max-w-3xl mx-auto">
-                Discovering the mathematical complexities in the new format
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="justify-center mb-8">
-                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 mb-6">
-                  <p className="text-slate-700 dark:text-slate-300 mb-6 leading-relaxed">
-                    We study feasibility properties of the new format. Among
-                    them we show that the scheduling issue cannot be ignored
-                    when drawing the matchups. Below is a noncompact draw
-                    outcome which satisfies all the pot and association
-                    constraints, i.e the matches cannot be scheduled within the
-                    eight match days.
-                  </p>
-                  <div className="flex justify-center mb-6">
-                    <div className="relative group">
-                      <img
-                        src={`${
-                          import.meta.env.BASE_URL
-                        }images/Contre-exemple-graph-legended.png`}
-                        alt="Counter-example graph showing Leipzig as a cut-vertex"
-                        className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-end justify-center">
-                        <Badge className="mb-4 bg-white/80 text-[#0e1e5b] hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black/90 backdrop-blur-sm">
-                          <Flame className="h-3.5 w-3.5 mr-1" /> Key Finding
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
+        <section id="counter-example" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <div className="section-card p-4 md:p-8 lg:p-12">
+            <SectionHeader
+              icon={Lightbulb}
+              title="Scheduling Challenges"
+              description="Discovering the mathematical complexities in the new format"
+            />
 
-        {/* Approach Section */}
-        <section id="approach" className="py-12 mb-12 scroll-mt-16">
-          <Card className="shadow-xl border-0 overflow-hidden bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-950">
-            <CardHeader className="text-center">
-              <Badge className="mx-auto mb-4 bg-[#0e1e5b]/10 text-[#0e1e5b] hover:bg-[#0e1e5b]/20 dark:bg-[#cfa749]/10 dark:text-[#cfa749] dark:hover:bg-[#cfa749]/20">
-                Methodology
-              </Badge>
-              <div className="flex items-center justify-center mb-4">
-                <Compass className="h-8 w-8 text-[#cfa749] mr-3" />
-                <CardTitle className="text-2xl md:text-3xl font-bold text-[#0e1e5b] dark:text-white">
-                  Build Schedule First
-                </CardTitle>
-              </div>
-              <CardDescription className="text-lg max-w-3xl mx-auto">
-                A systematic method to ensure fair and feasible tournament
-                scheduling
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="justify-center">
-                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 mb-8">
-                  <p className="text-slate-700 dark:text-slate-300 mb-8 leading-relaxed">
-                    In this approach, an 8-match-day schedule template is
-                    created to meet all pot constraints. The template uses
-                    placeholders. Teams are then assigned to these placeholders,
-                    ensuring that all association constraints are satisfied. We
-                    try to optimize sport fairness and maximize viewer interest
-                    when building the template.
-                  </p>
-                  <div className="flex justify-center">
-                    <div className="relative group">
-                      <img
-                        src={`${
-                          import.meta.env.BASE_URL
-                        }images/template-schedule.png`}
-                        alt="Template schedule showing the assignment of teams to match days"
-                        className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-end justify-center">
-                        <Badge className="mb-4 bg-white/80 text-[#0e1e5b] hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black/90 backdrop-blur-sm">
-                          <Zap className="h-3.5 w-3.5 mr-1" /> Template Design
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        {/* Numerical Values */}
-        <section id="numerical-analysis" className="py-12 mb-12 scroll-mt-16">
-          <Card className="shadow-xl border-0 overflow-hidden bg-white dark:bg-slate-900">
-            <CardHeader className="text-center">
-              <Badge className="mx-auto mb-4 bg-[#0e1e5b]/10 text-[#0e1e5b] hover:bg-[#0e1e5b]/20 dark:bg-[#cfa749]/10 dark:text-[#cfa749] dark:hover:bg-[#cfa749]/20">
-                Data Analysis
-              </Badge>
-              <div className="flex items-center justify-center mb-4">
-                <BarChart3 className="h-8 w-8 text-[#cfa749] mr-3" />
-                <CardTitle className="text-2xl md:text-3xl font-bold text-[#0e1e5b] dark:text-white">
-                  Numerical Analysis
-                </CardTitle>
-              </div>
-              <CardDescription className="text-lg max-w-3xl mx-auto">
-                Quantifying fairness across different draw methodologies
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="justify-center mb-8">
-                <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 border border-slate-200 dark:border-slate-700 mb-8">
-                  <p className="text-slate-700 dark:text-slate-300 mb-8 leading-relaxed">
-                    We simulate a large number of draws (40,000) according to
-                    several draw methods and then analyze the empirical
-                    distribution of the average "strength" of each team's
-                    opponents. This helps us quantify the fairness of different
-                    approaches.
-                  </p>
-                  <div className="flex justify-center">
-                    <div className="relative group">
-                      <img
-                        src={`${import.meta.env.BASE_URL}images/luck-index.png`}
-                        alt="Graph showing luck index distribution across different draw methods"
-                        className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
-                      />
-                      <img
-                        src={`${
-                          import.meta.env.BASE_URL
-                        }images/dmf_ucl_uefa_scatterplot-1.png`}
-                        alt="Graph showing luck index distribution across different draw methods"
-                        className="rounded-lg shadow-md w-full max-w-2xl h-auto border-4 border-white dark:border-slate-700 transition-all duration-300 group-hover:shadow-xl"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#0e1e5b]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-lg flex items-end justify-center">
-                        <Badge className="mb-4 bg-white/80 text-[#0e1e5b] hover:bg-white dark:bg-black/80 dark:text-white dark:hover:bg-black/90 backdrop-blur-sm">
-                          <Star className="h-3.5 w-3.5 mr-1" /> Statistical
-                          Results
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </section>
-
-        <section id="approach" className="py-12 mb-12 scroll-mt-16">
-          <div className="shadow-xl overflow-hidden rounded-xl bg-gradient-to-br from-white to-slate-50 dark:from-slate-900 dark:to-slate-950">
-            <div className="text-center pt-8 px-6">
-              <div className="inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-medium mb-4 bg-blue-100 text-blue-900 dark:bg-amber-100/10 dark:text-amber-400">
-                Discover More
-              </div>
-              <div className="flex items-center justify-center mb-4">
-                <BookOpenText className="h-8 w-8 text-amber-500 mr-3" />
-                <h2 className="text-2xl md:text-3xl font-bold text-blue-950 dark:text-white">
-                  Research Paper
-                </h2>
-              </div>
-              <p className="text-lg max-w-3xl mx-auto text-slate-600 dark:text-slate-300">
-                Explore the mathematical foundations of our work, including
-                format properties, graph theory results, and detailed fairness
-                analyses.
-              </p>
-            </div>
-            <div className="p-6 md:p-8">
-              <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 md:p-8 border border-slate-200 dark:border-slate-700">
-                <h3 className="text-xl font-semibold mb-4 text-blue-900 dark:text-amber-400">
-                  Abstract
-                </h3>
-                <div className="prose dark:prose-invert max-w-none">
-                  <p className="text-slate-700 dark:text-slate-300 mb-4 leading-relaxed">
-                    The league phase of the new UEFA Champions League gathers 36
-                    soccer teams ranked in a single table. Each team faces only
-                    eight opponents drawn randomly, subject to seeding pot and
-                    association constraints. We investigate four methods for
-                    drawing the league phase matchups:
-                  </p>
-
-                  <ol className="space-y-4 mb-6">
-                    <li className="flex gap-3 text-slate-700 dark:text-slate-300">
-                      <span className="font-semibold text-blue-900 dark:text-amber-400">
-                        First,
-                      </span>
-                      <div>
-                        We analyze UEFA's official draw procedure where matchups
-                        are drawn before scheduling. Using chromatic index
-                        arguments from graph theory, we demonstrate that
-                        scheduling cannot be ignored when drawing matchups, as
-                        some valid draws become noncompact (impossible to
-                        schedule within eight match days).
-                      </div>
-                    </li>
-
-                    <li className="flex gap-3 text-slate-700 dark:text-slate-300">
-                      <span className="font-semibold text-blue-900 dark:text-amber-400">
-                        Second,
-                      </span>
-                      <div>
-                        We explore an alternative method that first builds a
-                        schedule template satisfying pot constraints before
-                        randomly populating it with teams. We prove the minimum
-                        number of breaks equals 4 and explicitly construct a
-                        template that minimizes breaks while optimizing fairness
-                        and TV exposure.
-                      </div>
-                    </li>
-                  </ol>
-
-                  <p className="text-slate-700 dark:text-slate-300 mb-4 leading-relaxed">
-                    For both methods, we also examine randomized variations
-                    where we shuffle the order of pots from which teams are
-                    drawn or the order used to populate the schedule template.
-                  </p>
-
-                  <p className="text-slate-700 dark:text-slate-300 mb-4 leading-relaxed">
-                    Using integer programming to express draw constraints, we
-                    run Monte Carlo simulations comparing these four methods for
-                    the 2024–25 UEFA Champions League and Europa League. We
-                    assess fairness by analyzing the distributions of opponents'
-                    average strength and measure each procedure's impact on
-                    matchup probabilities.
-                  </p>
-
-                  <p className="text-slate-700 dark:text-slate-300 mb-4 leading-relaxed">
-                    We introduce a luck index that objectively ranks teams from
-                    luckiest to unluckiest during the actual draw. Additionally,
-                    we provide examples of noncompact draw outcomes and derive
-                    the minimum number of scheduling breaks for general setups
-                    with multiple seeding pots.
-                  </p>
-                </div>
-
-                <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
-                  <a
-                    href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
-                    className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none bg-blue-900 text-white hover:bg-blue-800 h-10 py-2 px-4 w-full sm:w-auto"
-                  >
-                    Read Full Article
-                    <ExternalLink className="ml-2 h-4 w-4" />
-                  </a>
-                </div>
-
-                <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Julia code available at:{" "}
-                  <a
-                    href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
-                    className="text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    github.com/JulienGuyon/UEFA-league-phase-draw
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer className="py-8 border-t border-slate-200 dark:border-slate-800 mt-12">
-          <div className="container mx-auto px-4">
-            <div className="flex flex-col md:flex-row justify-between items-center">
-              <div className="mb-6 md:mb-0">
-                <div className="flex items-center justify-center md:justify-start">
-                  <Trophy className="h-6 w-6 text-[#cfa749] mr-2" />
-                  <span className="text-lg font-bold text-[#0e1e5b] dark:text-white">
-                    Champions League Research
-                  </span>
-                </div>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
-                  © 2025 All rights reserved
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-6 md:mb-8 rounded-xl bg-[hsl(var(--muted))]/50 p-4 md:p-6">
+                <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
+                  We study feasibility properties of the new format. Among them
+                  we show that the scheduling issue cannot be ignored when drawing
+                  the matchups. Below is a noncompact draw outcome which satisfies
+                  all the pot and association constraints, i.e the matches cannot
+                  be scheduled within the eight match days.
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 md:flex md:space-x-6 gap-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#0e1e5b] hover:text-[#0e1e5b] hover:bg-[#0e1e5b]/10 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800"
-                  asChild
-                >
-                  <a href="#introduction">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Overview
-                  </a>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#0e1e5b] hover:text-[#0e1e5b] hover:bg-[#0e1e5b]/10 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800"
-                  asChild
-                >
-                  <a href="#simulator">
-                    <Dices className="h-4 w-4 mr-2" />
-                    Simulator
-                  </a>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#0e1e5b] hover:text-[#0e1e5b] hover:bg-[#0e1e5b]/10 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800"
-                  asChild
-                >
-                  <a href="#counter-example">
-                    <Lightbulb className="h-4 w-4 mr-2" />
-                    Research
-                  </a>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-[#0e1e5b] hover:text-[#0e1e5b] hover:bg-[#0e1e5b]/10 dark:text-slate-300 dark:hover:text-white dark:hover:bg-slate-800"
-                  asChild
-                >
-                  <a href="#numerical-analysis">
-                    <BarChart3 className="h-4 w-4 mr-2" />
-                    Analysis
-                  </a>
-                </Button>
+              <ImageFigure
+                src={`${import.meta.env.BASE_URL}images/Contre-exemple-graph-legended.png`}
+                alt="Counter-example graph showing Leipzig as a cut-vertex"
+                caption="A noncompact draw outcome — impossible to schedule within eight match days"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Approach */}
+        <section id="approach" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <div className="section-card p-4 md:p-8 lg:p-12">
+            <SectionHeader
+              icon={Compass}
+              title="Build Schedule First"
+              description="A systematic method to ensure fair and feasible tournament scheduling"
+            />
+
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-6 md:mb-8 rounded-xl bg-[hsl(var(--muted))]/50 p-4 md:p-6">
+                <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
+                  In this approach, an 8-match-day schedule template is created to
+                  meet all pot constraints. The template uses placeholders. Teams
+                  are then assigned to these placeholders, ensuring that all
+                  association constraints are satisfied.
+                </p>
+              </div>
+
+              <ImageFigure
+                src={`${import.meta.env.BASE_URL}images/template-schedule.png`}
+                alt="Template schedule showing the assignment of teams to match days"
+                caption="Template Design — schedule template satisfying pot constraints"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* Numerical Analysis */}
+        <section id="numerical-analysis" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <div className="section-card p-4 md:p-8 lg:p-12">
+            <SectionHeader
+              icon={BarChart3}
+              title="Numerical Analysis"
+              description="Quantifying fairness across different draw methodologies"
+            />
+
+            <div className="mx-auto max-w-3xl">
+              <div className="mb-6 md:mb-8 rounded-xl bg-[hsl(var(--muted))]/50 p-4 md:p-6">
+                <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
+                  We simulate a large number of draws (40,000) according to
+                  several draw methods and then analyze the empirical distribution
+                  of the average "strength" of each team's opponents.
+                </p>
+              </div>
+
+              <div className="space-y-4 md:space-y-6">
+                <ImageFigure
+                  src={`${import.meta.env.BASE_URL}images/luck-index.png`}
+                  alt="Graph showing luck index distribution across different draw methods"
+                  caption="Luck index distribution across draw methods"
+                />
+                <ImageFigure
+                  src={`${import.meta.env.BASE_URL}images/dmf_ucl_uefa_scatterplot-1.png`}
+                  alt="Scatterplot of UCL UEFA draw method fairness"
+                  caption="Scatterplot comparing draw method fairness"
+                />
               </div>
             </div>
           </div>
-        </footer>
-      </div>
+        </section>
+
+        {/* Research Paper */}
+        <section className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
+          <div className="section-card p-4 md:p-8 lg:p-12">
+            <SectionHeader
+              icon={BookOpenText}
+              title="Research Paper"
+              description="Explore the mathematical foundations of our work."
+            />
+
+            <div className="mx-auto max-w-3xl">
+              <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--muted))]/30 p-4 md:p-6 lg:p-8">
+                <h3 className="mb-3 md:mb-4 text-base md:text-lg font-semibold text-[hsl(var(--foreground))]">
+                  Abstract
+                </h3>
+                <div className="space-y-3 md:space-y-4 text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
+                  <p>
+                    The league phase of the new UEFA Champions League gathers 36
+                    soccer teams ranked in a single table. Each team faces only
+                    eight opponents drawn randomly, subject to seeding pot and
+                    association constraints. We investigate four methods for drawing
+                    the league phase matchups:
+                  </p>
+
+                  <div className="space-y-2 md:space-y-3 pl-1">
+                    <div className="flex gap-2 md:gap-3">
+                      <span className="mt-0.5 flex h-4 w-4 md:h-5 md:w-5 shrink-0 items-center justify-center rounded-full bg-[var(--uefa-blue)]/10 text-[9px] md:text-[10px] font-bold text-[var(--uefa-blue)]">
+                        1
+                      </span>
+                      <p>
+                        We analyze UEFA's official draw procedure where matchups
+                        are drawn before scheduling. Using chromatic index
+                        arguments from graph theory, we demonstrate that scheduling
+                        cannot be ignored when drawing matchups.
+                      </p>
+                    </div>
+                    <div className="flex gap-2 md:gap-3">
+                      <span className="mt-0.5 flex h-4 w-4 md:h-5 md:w-5 shrink-0 items-center justify-center rounded-full bg-[var(--uefa-blue)]/10 text-[9px] md:text-[10px] font-bold text-[var(--uefa-blue)]">
+                        2
+                      </span>
+                      <p>
+                        We explore an alternative method that first builds a
+                        schedule template satisfying pot constraints before
+                        randomly populating it with teams.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Collapse extra paragraphs on mobile */}
+                  <div className="hidden md:block space-y-4">
+                    <p>
+                      For both methods, we also examine randomized variations where
+                      we shuffle the order of pots from which teams are drawn or the
+                      order used to populate the schedule template.
+                    </p>
+
+                    <p>
+                      Using integer programming to express draw constraints, we run
+                      Monte Carlo simulations comparing these four methods for the
+                      2024–25 UEFA Champions League and Europa League. We assess
+                      fairness by analyzing the distributions of opponents' average
+                      strength and measure each procedure's impact on matchup
+                      probabilities.
+                    </p>
+
+                    <p>
+                      We introduce a luck index that objectively ranks teams from
+                      luckiest to unluckiest during the actual draw. Additionally, we
+                      provide examples of noncompact draw outcomes and derive the
+                      minimum number of scheduling breaks for general setups with
+                      multiple seeding pots.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 md:mt-8 flex flex-col items-start gap-3 md:gap-4 border-t border-[hsl(var(--border))] pt-4 md:pt-6 sm:flex-row sm:items-center">
+                  <Button
+                    asChild
+                    className="rounded-full bg-[var(--uefa-blue)] text-white hover:bg-[var(--uefa-blue-light)] font-medium h-9 md:h-10 px-5 md:px-6 text-xs md:text-sm w-full sm:w-auto"
+                  >
+                    <a
+                      href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5413142"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Read Full Article
+                      <ArrowUpRight className="ml-2 h-3.5 w-3.5 md:h-4 md:w-4" />
+                    </a>
+                  </Button>
+                  <span className="text-[10px] md:text-xs text-[hsl(var(--muted-foreground))]">
+                    Julia code at{" "}
+                    <a
+                      href="https://github.com/JulienGuyon/UEFA-league-phase-draw"
+                      className="underline underline-offset-2 hover:text-[hsl(var(--foreground))] transition-colors"
+                    >
+                      github.com/JulienGuyon/UEFA-league-phase-draw
+                    </a>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="mt-8 md:mt-12 border-t border-[hsl(var(--border))]">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:gap-6 px-4 md:px-6 py-6 md:py-10 md:flex-row">
+          <div className="flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-[var(--uefa-gold)]" />
+            <span className="text-xs md:text-sm font-semibold text-[hsl(var(--foreground))]">
+              Champions League Research
+            </span>
+            <span className="text-[10px] md:text-xs text-[hsl(var(--muted-foreground))]">
+              &copy; 2025
+            </span>
+          </div>
+
+          <div className="hidden md:flex items-center gap-1">
+            {navItems.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-md px-3 py-1.5 text-xs text-[hsl(var(--muted-foreground))] transition-colors hover:text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+              >
+                {item.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
