@@ -1,6 +1,6 @@
 "use client";
 
-import { POTS, TEAMS } from "../lib/data";
+import { POTS } from "../lib/data";
 import type { Team, Constraints } from "../lib/types";
 import {
   useDrawSimulator,

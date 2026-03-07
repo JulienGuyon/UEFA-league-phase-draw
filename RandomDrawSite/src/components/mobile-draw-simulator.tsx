@@ -424,7 +424,7 @@ export function MobileDrawSimulator() {
       )}
 
       {/* Team browser */}
-      {(state.phase !== "idle" || state.phase === "done") && (
+      {(state.phase !== "idle") && (
         <div>
           <button
             onClick={() => setShowBrowser(!showBrowser)}
