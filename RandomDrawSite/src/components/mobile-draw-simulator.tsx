@@ -75,7 +75,7 @@ function TeamMatchupCard({
                 <div
                   className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors duration-300 ${
                     hFlash
-                      ? "bg-emerald-100 dark:bg-emerald-900/40"
+                      ? "bg-sky-100 dark:bg-sky-900/40"
                       : homeOpp
                         ? "bg-[hsl(var(--muted))]/40"
                         : ""
@@ -99,7 +99,7 @@ function TeamMatchupCard({
                 <div
                   className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors duration-300 ${
                     aFlash
-                      ? "bg-emerald-100 dark:bg-emerald-900/40"
+                      ? "bg-sky-100 dark:bg-sky-900/40"
                       : awayOpp
                         ? "bg-[hsl(var(--muted))]/40"
                         : ""
@@ -336,8 +336,8 @@ export function MobileDrawSimulator() {
             state.constraints,
           );
           return homeOpp && awayOpp ? (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20 px-3 py-2.5 flex items-center gap-2">
-              <Trophy className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <div className="rounded-lg border border-[var(--uefa-blue)]/20 bg-[var(--uefa-blue)]/5 px-3 py-2.5 flex items-center gap-2">
+              <Trophy className="h-3.5 w-3.5 text-[var(--uefa-blue)] shrink-0" />
               <span className="text-xs text-[hsl(var(--foreground))]">
                 <Home className="h-3 w-3 inline mr-0.5" />
                 <span className="font-semibold">{homeOpp.name}</span>
@@ -402,7 +402,7 @@ export function MobileDrawSimulator() {
             className={`flex items-center justify-center rounded-xl w-12 transition-all duration-200 active:scale-[0.97] ${
               autoMode
                 ? "bg-[var(--uefa-gold)] text-white"
-                : "bg-emerald-600 text-white"
+                : "bg-[var(--uefa-blue)] text-white"
             }`}
           >
             {autoMode ? (
@@ -422,6 +422,48 @@ export function MobileDrawSimulator() {
           Reset draw
         </button>
       )}
+
+      {/* Admissible couples */}
+      {(state.phase === "showing-admissible" || state.phase === "showing-result") &&
+        !isBrowsing &&
+        state.admissible.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2">
+              <span className="text-[10px] font-semibold text-[hsl(var(--muted-foreground))] uppercase tracking-wider">
+                Admissible pairs
+              </span>
+              <div className="flex-1 h-px bg-[hsl(var(--border))]" />
+              <span className="text-[9px] text-[hsl(var(--muted-foreground))] tabular-nums">
+                {state.admissible.length} pair{state.admissible.length > 1 ? "s" : ""}
+              </span>
+            </div>
+            <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
+              <div className="max-h-40 overflow-y-auto divide-y divide-[hsl(var(--border))]/50">
+                {state.admissible.map(({ home, away }, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 px-4 py-2"
+                  >
+                    <div className="flex-1 grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-1.5 rounded-md px-2 py-1 bg-[hsl(var(--muted))]/30">
+                        <Home className="h-3 w-3 text-[hsl(var(--muted-foreground))] shrink-0" />
+                        <span className="text-[11px] font-medium text-[hsl(var(--foreground))] truncate">
+                          {home.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 rounded-md px-2 py-1 bg-[hsl(var(--muted))]/30">
+                        <Plane className="h-3 w-3 text-[hsl(var(--muted-foreground))] shrink-0" />
+                        <span className="text-[11px] font-medium text-[hsl(var(--foreground))] truncate">
+                          {away.name}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* Team browser */}
       {(state.phase !== "idle") && (

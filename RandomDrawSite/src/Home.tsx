@@ -61,7 +61,7 @@ function FeatureCard({
 }) {
   return (
     <div className="group hover-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6 transition-all">
-      <div className="mb-3 md:mb-4 inline-flex items-center justify-center rounded-lg bg-[var(--uefa-blue)]/8 p-2 md:p-2.5 transition-colors group-hover:bg-[var(--uefa-blue)]/12">
+      <div className="mb-3 md:mb-4 hidden md:inline-flex items-center justify-center rounded-lg bg-[var(--uefa-blue)]/8 p-2 md:p-2.5 transition-colors group-hover:bg-[var(--uefa-blue)]/12">
         <Icon className="h-4 w-4 md:h-5 md:w-5 text-[var(--uefa-blue)]" />
       </div>
       <h3 className="mb-1.5 md:mb-2 text-sm md:text-base font-semibold text-[hsl(var(--foreground))]">
@@ -182,7 +182,6 @@ export default function Home() {
             href="#"
             className="flex items-center gap-2 font-semibold text-[var(--uefa-blue)] text-sm"
           >
-            <Trophy className="h-4 w-4 text-[var(--uefa-gold)]" />
             <span className="hidden sm:inline">UCL Draw Research</span>
           </a>
 
@@ -585,12 +584,8 @@ export default function Home() {
       <footer className="mt-8 md:mt-12 border-t border-[hsl(var(--border))]">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 md:gap-6 px-4 md:px-6 py-6 md:py-10 md:flex-row">
           <div className="flex items-center gap-2">
-            <Trophy className="h-4 w-4 text-[var(--uefa-gold)]" />
-            <span className="text-xs md:text-sm font-semibold text-[hsl(var(--foreground))]">
-              Champions League Research
-            </span>
             <span className="text-[10px] md:text-xs text-[hsl(var(--muted-foreground))]">
-              &copy; 2025
+              &copy; 2026
             </span>
           </div>
 
