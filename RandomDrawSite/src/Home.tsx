@@ -217,7 +217,7 @@ export default function Home() {
         {/* Hero Section */}
         <section className="relative overflow-hidden rounded-2xl bg-[var(--uefa-blue)] px-5 py-10 mt-4 md:px-16 md:py-24 md:mt-8">
           <div className="absolute inset-0 bg-grid opacity-[0.04]" />
-          <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-[var(--uefa-gold)]/10 blur-3xl" />
+          <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
           <div className="absolute -bottom-32 -left-32 h-96 w-96 rounded-full bg-white/5 blur-3xl" />
 
           <div className="relative z-10 mx-auto max-w-3xl text-center">
