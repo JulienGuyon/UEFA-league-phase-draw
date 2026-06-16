@@ -1190,9 +1190,239 @@ function uefa_draw_without_day_constraints(nb_draw::Int = 1)
 end
 
 
-###################################### COMMANDS ###################################### 
+######################## CHROMATIC INDEX EXPERIMENT (Gurobi) ########################
+# Question: parmi les graphes de matchs qui respectent les contraintes UEFA, quelle
+# proportion a un indice chromatique egal a 9, c'est-a-dire ne peut PAS etre jouee en
+# 8 journees ?
+#
+# Methode :
+#   1. On effectue un tirage UEFA complet dont le test d'admissibilite IGNORE la
+#      contrainte temporelle (matchday). A chaque etape, une equipe adverse est
+#      admissible si elle mene a une affectation de matchs valide vis-a-vis de toutes
+#      les contraintes UEFA SAUF "jouable en 8 jours" (cf. solve_matchups_feasibility).
+#   2. Sur le graphe de 144 matchs obtenu, on teste s'il existe une affectation des
+#      matchs a 8 journees, chaque equipe jouant exactement une fois par journee.
+#      Infaisable  <=>  indice chromatique 9  <=>  non jouable en 8 jours.
+#
+# Independance des tirages : chaque tirage possede son propre Gurobi.Env, cree dans la
+# boucle @threads puis libere a la fin de l'iteration. Un Gurobi.Env ne doit jamais
+# etre partage entre threads ; on n'utilise donc PAS l'`env` global, et chaque tirage
+# concurrent est totalement isole. Les modeles sont construits avec
+# `direct_model(Gurobi.Optimizer(gurobi_env))`, la maniere documentee d'attacher un
+# modele a un environnement donne (cf. https://github.com/jump-dev/Gurobi.jl).
+
+"""
+Faisabilite des matchups SANS la dimension temporelle (matchday), resolue avec un
+environnement Gurobi fourni par l'appelant (pour que les tirages concurrents restent
+independants). Equivalent a `solve_problem_without_day_constraints`, mais utilise
+toujours Gurobi et l'environnement passe en argument.
+"""
+function solve_matchups_feasibility(
+	selected_team::Team,
+	constraints::Dict{String, Constraint},
+	new_match::NTuple{2, Team},
+	gurobi_env::Gurobi.Env,
+)::Bool
+	model = direct_model(Gurobi.Optimizer(gurobi_env))
+	set_silent(model)
+
+	# match_vars[i, j] == 1 si l'equipe i joue a domicile contre l'equipe j.
+	@variable(model, match_vars[1:36, 1:36], Bin)
+	@objective(model, Max, 0)
+
+	# Une equipe ne peut pas jouer contre elle-meme
+	@constraint(model, [i = 1:36], match_vars[i, i] == 0)
+
+	# Chaque equipe joue exactement une fois a domicile et une fois a l'exterieur par pot
+	for pot_start in 1:9:28
+		@constraint(model, [i = 1:36], sum(match_vars[i, j] for j in pot_start:(pot_start+8)) == 1)
+		@constraint(model, [i = 1:36], sum(match_vars[j, i] for j in pot_start:(pot_start+8)) == 1)
+	end
+
+	# Match candidat fixe
+	home_idx, away_idx = get_club_index_from_team_name(new_match[1].club), get_club_index_from_team_name(new_match[2].club)
+	selected_team_idx = get_club_index_from_team_name(selected_team.club)
+	@constraint(model, match_vars[selected_team_idx, home_idx] == 1)
+	@constraint(model, match_vars[away_idx, selected_team_idx] == 1)
+
+	# Matchs deja tires
+	for (club, club_constraints) in constraints
+		club_idx = get_club_index_from_team_name(club)
+		for home_club in club_constraints.played_home
+			@constraint(model, match_vars[club_idx, get_club_index_from_team_name(home_club)] == 1)
+		end
+		for away_club in club_constraints.played_ext
+			@constraint(model, match_vars[get_club_index_from_team_name(away_club), club_idx] == 1)
+		end
+	end
+
+	# Pas de match entre deux equipes de meme nationalite
+	for team_i_idx in 1:36, team_j_idx in 1:36
+		if team_i_idx != team_j_idx && get_team_nationality(team_i_idx) == get_team_nationality(team_j_idx)
+			@constraint(model, match_vars[team_i_idx, team_j_idx] == 0)
+		end
+	end
+
+	# Au plus deux matchs contre des equipes d'une meme nationalite
+	for nationality in all_nationalities
+		for team_index in 1:36
+			@constraint(model, sum(
+				match_vars[team_index, opp] + match_vars[opp, team_index]
+				for opp in 1:36
+				if get_team_nationality(opp) == nationality
+			) <= 2)
+		end
+	end
+
+	optimize!(model)
+	status = termination_status(model)
+	if status == MOI.INFEASIBLE
+		return false
+	elseif status == MOI.OPTIMAL || status == MOI.FEASIBLE_POINT
+		return true
+	else
+		error("Unexpected Gurobi status in solve_matchups_feasibility: $status")
+	end
+end
+
+"""
+Variante de `true_admissible_matches` SANS contrainte temporelle, utilisant un
+environnement Gurobi fourni par l'appelant.
+"""
+function admissible_matchups_no_day(
+	selected_team::Team,
+	opponent_group::NTuple{9, Team},
+	constraints::Dict{String, Constraint},
+	gurobi_env::Gurobi.Env,
+)::Vector{Tuple{Team, Team}}
+	true_matches = Vector{Tuple{Team, Team}}()
+	for match in prefilter_admissible_matches(selected_team, opponent_group, constraints)
+		if solve_matchups_feasibility(selected_team, constraints, match, gurobi_env)
+			push!(true_matches, match)
+		end
+	end
+	return true_matches
+end
+
+"""
+Etant donne les 144 matchs orientes (home_idx, away_idx) d'un tirage termine, teste
+s'ils peuvent etre joues sur 8 journees avec chaque equipe jouant exactement une fois
+par journee. Renvoie `true` s'il existe un calendrier sur 8 journees (indice chromatique
+8), `false` sinon (indice chromatique 9). Utilise l'environnement Gurobi fourni.
+"""
+function is_schedulable_in_8_days(matchups::Vector{Tuple{Int, Int}}, gurobi_env::Gurobi.Env)::Bool
+	T = 8
+	P = length(matchups)
+	model = direct_model(Gurobi.Optimizer(gurobi_env))
+	set_silent(model)
+
+	# x[p, t] == 1 si le match p est joue lors de la journee t.
+	@variable(model, x[1:P, 1:T], Bin)
+	@objective(model, Max, 0)
+
+	# Chaque match est joue lors d'exactement une journee
+	@constraint(model, [p = 1:P], sum(x[p, t] for t in 1:T) == 1)
+
+	# Chaque equipe joue exactement une fois par journee
+	for team in 1:36
+		matches_of_team = [p for p in 1:P if matchups[p][1] == team || matchups[p][2] == team]
+		@constraint(model, [t = 1:T], sum(x[p, t] for p in matches_of_team) == 1)
+	end
+
+	optimize!(model)
+	status = termination_status(model)
+	if status == MOI.INFEASIBLE
+		return false
+	elseif status == MOI.OPTIMAL || status == MOI.FEASIBLE_POINT
+		return true
+	else
+		error("Unexpected Gurobi status in is_schedulable_in_8_days: $status")
+	end
+end
+
+"""
+	chromatic_index_experiment(nb_draw::Int=1)
+
+Effectue `nb_draw` tirages UEFA independants (admissibilite SANS contrainte temporelle,
+resolue avec Gurobi) puis, pour chaque graphe de matchs obtenu, teste s'il peut etre
+joue sur 8 journees. Renvoie la proportion de graphes d'indice chromatique 9 (non
+jouables en 8 jours) et ajoute le resultat par tirage dans `chromatic_index_results.txt`
+(une ligne "8" ou "9" par tirage).
+
+Chaque tirage utilise son propre Gurobi.Env pour une independance totale entre threads.
+"""
+function chromatic_index_experiment(nb_draw::Int = 1)
+	if !(isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
+		error("This experiment requires Gurobi. Please install Gurobi.jl and a valid license.")
+	end
+
+	needs_nine_days = falses(nb_draw)
+	@threads for s in 1:nb_draw
+		# Un environnement Gurobi neuf et isole par tirage.
+		gurobi_env = Gurobi.Env(
+			Dict{String, Any}(
+				"OutputFlag" => 0,
+				"LogToConsole" => 0,
+			),
+		)
+		try
+			constraints = initialize_constraints(all_nationalities)
+			for pot_index in 1:4
+				pot = (teams.potA, teams.potB, teams.potC, teams.potD)[pot_index]
+				for i in shuffle!(collect(1:9))
+					selected_team = pot[i]
+					# On ne traite que les pots >= pot_index : les matchs avec les pots
+					# precedents ont deja ete fixes quand ces pots ont ete tires.
+					for idx_opponent_pot in pot_index:4
+						opponent_pot = (teams.potA, teams.potB, teams.potC, teams.potD)[idx_opponent_pot]
+						candidates = admissible_matchups_no_day(selected_team, opponent_pot, constraints, gurobi_env)
+						if isempty(candidates)
+							error("Dead-end during draw $s for $(selected_team.club) vs pot $idx_opponent_pot")
+						end
+						home, away = candidates[rand(1:end)]
+						update_constraints(selected_team, home, constraints)
+						update_constraints(away, selected_team, constraints)
+					end
+				end
+			end
+
+			# Collecte des 144 matchs orientes (chacun compte une seule fois, cote domicile)
+			matchups = Vector{Tuple{Int, Int}}()
+			for (club, club_constraints) in constraints
+				club_idx = get_club_index_from_team_name(club)
+				for home_opponent in club_constraints.played_home
+					push!(matchups, (club_idx, get_club_index_from_team_name(home_opponent)))
+				end
+			end
+			@assert length(matchups) == 144 "Expected 144 matches, got $(length(matchups)) in draw $s"
+
+			needs_nine_days[s] = !is_schedulable_in_8_days(matchups, gurobi_env)
+		finally
+			# Libere l'environnement Gurobi de ce tirage.
+			finalize(gurobi_env)
+		end
+	end
+
+	nb_nine = count(needs_nine_days)
+	proportion = nb_nine / nb_draw
+
+	open("chromatic_index_results.txt", "a") do file
+		for s in 1:nb_draw
+			write(file, needs_nine_days[s] ? "9\n" : "8\n")
+		end
+	end
+
+	println("Chromatic index experiment over $nb_draw draws")
+	println("Draws requiring 9 matchdays (chromatic index 9): $nb_nine / $nb_draw")
+	println("Proportion with chromatic index 9: $(round(proportion * 100, digits = 4)) %")
+
+	return proportion
+end
+
+
+###################################### COMMANDS ######################################
 @time begin
-	# uefa_draw_with_rejection(NB_DRAWS)
-	uefa_draw(NB_DRAWS)
+	# uefa_draw(NB_DRAWS)
+	chromatic_index_experiment(NB_DRAWS)
 	@info "$(NB_DRAWS) draws have been successfully performed"
 end
