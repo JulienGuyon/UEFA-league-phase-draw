@@ -4,9 +4,9 @@ if isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing
 end
 using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Logging
 ####################################### CONFIG VARIABLES #######################################
-const SOLVER = "SCIP" # Alternative: "Gurobi", "SCIP"
+const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
-const NB_DRAWS = 1
+const NB_DRAWS = 10_000
 const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -1129,10 +1129,7 @@ end
 # modele a un environnement donne (cf. https://github.com/jump-dev/Gurobi.jl).
 
 """
-Faisabilite des matchups SANS la dimension temporelle (matchday), resolue avec un
-environnement Gurobi fourni par l'appelant (pour que les tirages concurrents restent
-independants). Equivalent a `solve_problem_without_day_constraints`, mais utilise
-toujours Gurobi et l'environnement passe en argument.
+Faisabilite des matchups SANS la dimension temporelle (matchday). 
 """
 function solve_matchups_feasibility(
 	selected_team::Team,
@@ -1274,6 +1271,18 @@ function chromatic_index_experiment(nb_draw::Int = 1)
 	end
 
 	needs_nine_days = falses(nb_draw)
+	completed = Threads.Atomic{Int}(0)
+	start_time = time()
+
+	# Ecriture incrementale, protegee par un verrou (les tirages tournent en parallele).
+	results_lock = ReentrantLock()
+	# Indice chromatique par tirage, ecrit a la fin de CHAQUE tirage : "<draw_id> <8|9>".
+	results_file = open("chromatic_index_results.txt", "a")
+	# Pour les tirages d'indice chromatique 9 : liste lisible des rencontres decidees.
+	matchups9_file = open("chromatic_index_9_matchups.txt", "a")
+	# Memoire des tirages d'indice 9 : (draw_id, liste des matchs (home_idx, away_idx)).
+	nine_day_matchups = Vector{Tuple{Int, Vector{Tuple{Int, Int}}}}()
+
 	@threads for s in 1:nb_draw
 		# Un environnement Gurobi neuf et isole par tirage.
 		gurobi_env = Gurobi.Env(
@@ -1313,27 +1322,48 @@ function chromatic_index_experiment(nb_draw::Int = 1)
 			end
 			@assert length(matchups) == 144 "Expected 144 matches, got $(length(matchups)) in draw $s"
 
-			needs_nine_days[s] = !is_schedulable_in_8_days(matchups, gurobi_env)
+			is_nine = !is_schedulable_in_8_days(matchups, gurobi_env)
+			needs_nine_days[s] = is_nine
+
+			# Ecriture du resultat a la fin de ce tirage, et memorisation des
+			# rencontres lorsque l'indice chromatique vaut 9.
+			lock(results_lock) do
+				println(results_file, "$s ", is_nine ? 9 : 8)
+				flush(results_file)
+				if is_nine
+					push!(nine_day_matchups, (s, matchups))
+					named = [(get_team_from_club_index(h).club, get_team_from_club_index(a).club) for (h, a) in matchups]
+					println(matchups9_file, "draw $s: ", named)
+					flush(matchups9_file)
+				end
+			end
 		finally
 			# Libere l'environnement Gurobi de ce tirage.
 			finalize(gurobi_env)
 		end
+
+		# Progression (1 ligne tous les 1% environ)
+		done = Threads.atomic_add!(completed, 1) + 1
+		if done % max(1, nb_draw ÷ 100) == 0 || done == nb_draw
+			elapsed = round(time() - start_time, digits = 1)
+			println("Progress: $done / $nb_draw draws ($(elapsed)s elapsed)")
+			flush(stdout)
+		end
 	end
+
+	close(results_file)
+	close(matchups9_file)
 
 	nb_nine = count(needs_nine_days)
 	proportion = nb_nine / nb_draw
-
-	open("chromatic_index_results.txt", "a") do file
-		for s in 1:nb_draw
-			write(file, needs_nine_days[s] ? "9\n" : "8\n")
-		end
-	end
 
 	println("Chromatic index experiment over $nb_draw draws")
 	println("Draws requiring 9 matchdays (chromatic index 9): $nb_nine / $nb_draw")
 	println("Proportion with chromatic index 9: $(round(proportion * 100, digits = 4)) %")
 
-	return proportion
+	# Renvoie la proportion ainsi que, pour chaque tirage d'indice 9, la liste des
+	# rencontres decidees (draw_id, [(home_idx, away_idx), ...]).
+	return (proportion = proportion, nine_day_matchups = nine_day_matchups)
 end
 
 
