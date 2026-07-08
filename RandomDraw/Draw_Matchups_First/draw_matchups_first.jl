@@ -6,7 +6,7 @@ using JuMP, SCIP, MathOptInterface, CSV, DataFrames, Random, Base.Threads, Loggi
 ####################################### CONFIG VARIABLES #######################################
 const SOLVER = "Gurobi" # Alternative: "Gurobi", "SCIP"
 const LEAGUE = "CHAMPIONS_LEAGUE" # Alternative: "EUROPA_LEAGUE"
-const NB_DRAWS = 10_000
+const NB_DRAWS = parse(Int, get(ENV, "NB_DRAWS", "10000"))
 const DEBUG = false
 ####################################### GLOBAL VARIABLES #######################################
 
@@ -15,6 +15,7 @@ if SOLVER == "Gurobi"
 		Dict{String, Any}(
 			"OutputFlag" => 0,    # Suppress console output
 			"LogToConsole" => 0,   # No logging to console
+			"Threads" => 1,        # 1 solver thread (we parallelize over draws, not within a solve)
 		),
 	)
 elseif SOLVER == "SCIP"
@@ -29,7 +30,10 @@ end
 @info ("Nombre de threads utilisés : ", Threads.nthreads())
 @info "Starting Draw with $NB_DRAWS draws, for $LEAGUE, using $SOLVER solver"
 if DEBUG == false
-	Logging.disable_logging(Logging.Info) # Disable debug and info logging
+	# Disable Debug, Info AND Warn (the benign "Match already played" warnings from
+	# update_constraints would otherwise flood the logs over thousands of draws). Errors
+	# are still shown.
+	Logging.disable_logging(Logging.Warn)
 end
 
 
@@ -1153,6 +1157,13 @@ function solve_matchups_feasibility(
 		@constraint(model, [i = 1:36], sum(match_vars[j, i] for j in pot_start:(pot_start+8)) == 1)
 	end
 
+	# Chaque paire d'equipes se rencontre AU PLUS une fois (pas de double confrontation).
+	# Sans cette contrainte, le solveur peut "completer" un etat via des matchs doubles
+	# (i-domicile-vs-j ET j-domicile-vs-i), approuvant a tort des choix qui menent a une
+	# impasse plus tard. C'est l'equivalent, sans dimension temporelle, du
+	# `sum(match_vars[i,j,t] + match_vars[j,i,t]) <= 1` de `solve_problem`.
+	@constraint(model, [i = 1:36, j = 1:36; i < j], match_vars[i, j] + match_vars[j, i] <= 1)
+
 	# Match candidat fixe
 	home_idx, away_idx = get_club_index_from_team_name(new_match[1].club), get_club_index_from_team_name(new_match[2].club)
 	selected_team_idx = get_club_index_from_team_name(selected_team.club)
@@ -1263,9 +1274,21 @@ joue sur 8 journees. Renvoie la proportion de graphes d'indice chromatique 9 (no
 jouables en 8 jours) et ajoute le resultat par tirage dans `chromatic_index_results.txt`
 (une ligne "8" ou "9" par tirage).
 
-Chaque tirage utilise son propre Gurobi.Env pour une independance totale entre threads.
+Parallelisme : une tache par worker (Threads.@spawn), chacune possedant SON PROPRE
+Gurobi.Env reutilise pour tous ses tirages. Un Gurobi.Env (session WLS) est couteux a
+creer, on n'en cree donc jamais un par tirage. Chaque tache detient son env localement,
+donc aucun partage entre threads meme en cas de migration de tache.
+
+Reproductibilite : le tirage `s` est seede par `1234 + seed_offset + s`, ce qui rend le
+resultat total independant du nombre de threads et permet de decouper le travail en
+taches Slurm disjointes (via `seed_offset` et des plages de `s`).
 """
-function chromatic_index_experiment(nb_draw::Int = 1)
+function chromatic_index_experiment(nb_draw::Int = 1;
+	seed_offset::Int = 0,
+	results_path::AbstractString = "chromatic_index_results.txt",
+	matchups9_path::AbstractString = "chromatic_index_9_matchups.txt",
+	nworkers::Int = Threads.nthreads(),
+)
 	if !(isdefined(Main, :Gurobi) || Base.find_package("Gurobi") !== nothing)
 		error("This experiment requires Gurobi. Please install Gurobi.jl and a valid license.")
 	end
@@ -1277,69 +1300,60 @@ function chromatic_index_experiment(nb_draw::Int = 1)
 	# Ecriture incrementale, protegee par un verrou (les tirages tournent en parallele).
 	results_lock = ReentrantLock()
 	# Indice chromatique par tirage, ecrit a la fin de CHAQUE tirage : "<draw_id> <8|9>".
-	results_file = open("chromatic_index_results.txt", "a")
+	results_file = open(results_path, "a")
 	# Pour les tirages d'indice chromatique 9 : liste lisible des rencontres decidees.
-	matchups9_file = open("chromatic_index_9_matchups.txt", "a")
+	matchups9_file = open(matchups9_path, "a")
 	# Memoire des tirages d'indice 9 : (draw_id, liste des matchs (home_idx, away_idx)).
 	nine_day_matchups = Vector{Tuple{Int, Vector{Tuple{Int, Int}}}}()
 
-	@threads for s in 1:nb_draw
-		# Un environnement Gurobi neuf et isole par tirage.
-		gurobi_env = Gurobi.Env(
-			Dict{String, Any}(
-				"OutputFlag" => 0,
-				"LogToConsole" => 0,
-			),
-		)
-		try
-			constraints = initialize_constraints(all_nationalities)
-			for pot_index in 1:4
-				pot = (teams.potA, teams.potB, teams.potC, teams.potD)[pot_index]
-				for i in shuffle!(collect(1:9))
-					selected_team = pot[i]
-					# On ne traite que les pots >= pot_index : les matchs avec les pots
-					# precedents ont deja ete fixes quand ces pots ont ete tires.
-					for idx_opponent_pot in pot_index:4
-						opponent_pot = (teams.potA, teams.potB, teams.potC, teams.potD)[idx_opponent_pot]
-						candidates = admissible_matchups_no_day(selected_team, opponent_pot, constraints, gurobi_env)
-						if isempty(candidates)
-							error("Dead-end during draw $s for $(selected_team.club) vs pot $idx_opponent_pot")
-						end
-						home, away = candidates[rand(1:end)]
-						update_constraints(selected_team, home, constraints)
-						update_constraints(away, selected_team, constraints)
+	# Effectue un tirage complet `s` en reutilisant l'environnement Gurobi `genv`.
+	function run_one_draw!(s::Int, genv::Gurobi.Env)
+		# Reproductible et independant par tirage (valable aussi entre taches Slurm).
+		Random.seed!(1234 + seed_offset + s)
+		constraints = initialize_constraints(all_nationalities)
+		for pot_index in 1:4
+			pot = (teams.potA, teams.potB, teams.potC, teams.potD)[pot_index]
+			for i in shuffle!(collect(1:9))
+				selected_team = pot[i]
+				# On ne traite que les pots >= pot_index : les matchs avec les pots
+				# precedents ont deja ete fixes quand ces pots ont ete tires.
+				for idx_opponent_pot in pot_index:4
+					opponent_pot = (teams.potA, teams.potB, teams.potC, teams.potD)[idx_opponent_pot]
+					candidates = admissible_matchups_no_day(selected_team, opponent_pot, constraints, genv)
+					if isempty(candidates)
+						error("Dead-end during draw $s for $(selected_team.club) vs pot $idx_opponent_pot")
 					end
+					home, away = candidates[rand(1:end)]
+					update_constraints(selected_team, home, constraints)
+					update_constraints(away, selected_team, constraints)
 				end
 			end
+		end
 
-			# Collecte des 144 matchs orientes (chacun compte une seule fois, cote domicile)
-			matchups = Vector{Tuple{Int, Int}}()
-			for (club, club_constraints) in constraints
-				club_idx = get_club_index_from_team_name(club)
-				for home_opponent in club_constraints.played_home
-					push!(matchups, (club_idx, get_club_index_from_team_name(home_opponent)))
-				end
+		# Collecte des 144 matchs orientes (chacun compte une seule fois, cote domicile)
+		matchups = Vector{Tuple{Int, Int}}()
+		for (club, club_constraints) in constraints
+			club_idx = get_club_index_from_team_name(club)
+			for home_opponent in club_constraints.played_home
+				push!(matchups, (club_idx, get_club_index_from_team_name(home_opponent)))
 			end
-			@assert length(matchups) == 144 "Expected 144 matches, got $(length(matchups)) in draw $s"
+		end
+		@assert length(matchups) == 144 "Expected 144 matches, got $(length(matchups)) in draw $s"
 
-			is_nine = !is_schedulable_in_8_days(matchups, gurobi_env)
-			needs_nine_days[s] = is_nine
+		is_nine = !is_schedulable_in_8_days(matchups, genv)
+		needs_nine_days[s] = is_nine
 
-			# Ecriture du resultat a la fin de ce tirage, et memorisation des
-			# rencontres lorsque l'indice chromatique vaut 9.
-			lock(results_lock) do
-				println(results_file, "$s ", is_nine ? 9 : 8)
-				flush(results_file)
-				if is_nine
-					push!(nine_day_matchups, (s, matchups))
-					named = [(get_team_from_club_index(h).club, get_team_from_club_index(a).club) for (h, a) in matchups]
-					println(matchups9_file, "draw $s: ", named)
-					flush(matchups9_file)
-				end
+		# Ecriture du resultat a la fin de ce tirage, et memorisation des rencontres
+		# lorsque l'indice chromatique vaut 9.
+		lock(results_lock) do
+			println(results_file, "$(seed_offset + s) ", is_nine ? 9 : 8)
+			flush(results_file)
+			if is_nine
+				push!(nine_day_matchups, (s, matchups))
+				named = [(get_team_from_club_index(h).club, get_team_from_club_index(a).club) for (h, a) in matchups]
+				println(matchups9_file, "draw $(seed_offset + s): ", named)
+				flush(matchups9_file)
 			end
-		finally
-			# Libere l'environnement Gurobi de ce tirage.
-			finalize(gurobi_env)
 		end
 
 		# Progression (1 ligne tous les 1% environ)
@@ -1351,13 +1365,31 @@ function chromatic_index_experiment(nb_draw::Int = 1)
 		end
 	end
 
+	# Une tache par worker ; chaque tache traite les tirages c, c+nchunks, c+2*nchunks, ...
+	# et possede son propre Gurobi.Env reutilise pour tous ses tirages.
+	nchunks = max(1, min(nworkers, nb_draw))
+	@sync for c in 1:nchunks
+		Threads.@spawn begin
+			genv = Gurobi.Env(Dict{String, Any}("OutputFlag" => 0, "LogToConsole" => 0, "Threads" => 1))
+			try
+				s = c
+				while s <= nb_draw
+					run_one_draw!(s, genv)
+					s += nchunks
+				end
+			finally
+				finalize(genv)
+			end
+		end
+	end
+
 	close(results_file)
 	close(matchups9_file)
 
 	nb_nine = count(needs_nine_days)
 	proportion = nb_nine / nb_draw
 
-	println("Chromatic index experiment over $nb_draw draws")
+	println("Chromatic index experiment over $nb_draw draws (seed_offset=$seed_offset)")
 	println("Draws requiring 9 matchdays (chromatic index 9): $nb_nine / $nb_draw")
 	println("Proportion with chromatic index 9: $(round(proportion * 100, digits = 4)) %")
 
@@ -1368,8 +1400,23 @@ end
 
 
 ###################################### COMMANDS ######################################
-@time begin
-	# uefa_draw(NB_DRAWS)
-	chromatic_index_experiment(NB_DRAWS)
-	@info "$(NB_DRAWS) draws have been successfully performed"
+# Parametres runtime (surchargeables par variables d'environnement pour Slurm) :
+#   NB_DRAWS        nombre de tirages (defaut 10000)
+#   SEED_OFFSET     decalage de graine, pour decouper le travail en taches disjointes
+#   RESULTS_PATH    fichier resultat "<draw_id> <8|9>"
+#   MATCHUPS9_PATH  fichier des rencontres pour les tirages d'indice 9
+const SEED_OFFSET = parse(Int, get(ENV, "SEED_OFFSET", "0"))
+const RESULTS_PATH = get(ENV, "RESULTS_PATH", "chromatic_index_results.txt")
+const MATCHUPS9_PATH = get(ENV, "MATCHUPS9_PATH", "chromatic_index_9_matchups.txt")
+
+# RUN_EXPERIMENT=0 loads all definitions WITHOUT running (for diagnostics / include).
+if get(ENV, "RUN_EXPERIMENT", "1") != "0"
+	@time begin
+		chromatic_index_experiment(NB_DRAWS;
+			seed_offset = SEED_OFFSET,
+			results_path = RESULTS_PATH,
+			matchups9_path = MATCHUPS9_PATH,
+		)
+		@info "$(NB_DRAWS) draws have been successfully performed"
+	end
 end
