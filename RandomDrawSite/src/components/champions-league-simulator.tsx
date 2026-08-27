@@ -115,9 +115,9 @@ function ResultTable({
             ))}
           </tr>
           <tr className="border-b border-[hsl(var(--border))]">
-            <th className="px-3 py-1 text-left text-[9px] text-[hsl(var(--muted-foreground))] font-normal">
-              H = hosts &middot; A = visits
-            </th>
+            {/* Empty spacer above the team-name column — the home/plane icons
+                below already say which side of the tie each column holds. */}
+            <th className="px-3 py-1" />
             {[0, 1, 2, 3].map((p) => (
               <>
                 <th
