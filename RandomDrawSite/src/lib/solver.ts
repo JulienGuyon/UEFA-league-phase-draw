@@ -1,8 +1,25 @@
 import type { Team, Constraints } from "./types";
 import { TEAMS, ALL_NATIONALITIES, NB_TEAMS, NB_TEAMS_PER_POT } from "./data";
+// The WASM binary MUST come from the same highs-js release as the JS glue we
+// import below. Loading it from lovasoa.github.io (which tracks the latest
+// release) against our pinned glue made every solve throw "memory access out of
+// bounds", which the draw then read as "no feasible match". Bundling the .wasm
+// that ships with the installed package keeps the two versions in lockstep.
+import highsWasmUrl from "highs/runtime?url";
 
 let highs: any = null;
 let highsPromise: Promise<any> | null = null;
+
+/** Raised when HiGHS itself fails, as opposed to reporting an infeasible model. */
+export class SolverError extends Error {
+  readonly reason?: unknown;
+
+  constructor(message: string, reason?: unknown) {
+    super(message);
+    this.name = "SolverError";
+    this.reason = reason;
+  }
+}
 
 // ─── Solver init ──────────────────────────────────────────────────────────────
 
@@ -18,16 +35,13 @@ export async function initSolver() {
       const highsModule: any = await import("highs");
       const highsLoader: any = highsModule.default ?? highsModule;
 
-      highs = await highsLoader({
-        locateFile: (file: string) =>
-          `https://lovasoa.github.io/highs-js/${file}`,
-      });
+      highs = await highsLoader({ locateFile: () => highsWasmUrl });
 
       return highs;
     } catch (e) {
       console.error("Failed to load HiGHS solver:", e);
       highsPromise = null;
-      throw e;
+      throw new SolverError("Could not load the HiGHS solver.", e);
     }
   })();
 
@@ -36,39 +50,48 @@ export async function initSolver() {
 
 // ─── Problem formulation ──────────────────────────────────────────────────────
 //
-// Mirrors the Julia solve_problem() formulation exactly.
+// Mirrors the Julia solve_problem() formulation.
 //
-// Variables: x_i_j_t ∈ {0,1}
-//   = 1 if team i plays at home against team j on matchday t
+// Variables: x_i_j ∈ {0,1}
+//   = 1 if team i hosts team j at some point in the league phase.
 //
-// T = 8 matchdays, 36 teams, 4 pots of 9 teams each.
+// 36 teams, 4 pots of 9 teams each.
+//
+// The Julia model indexes its variables by matchday as well (x[i,j,t], t in
+// 1..8), but no constraint there ever separates the matchdays: every constraint
+// is written on ∑_t x_i_j_t, and constraint 2 caps ∑_t (x_i_j_t + x_j_i_t) at 1.
+// Substituting x_i_j := ∑_t x_i_j_t therefore gives an equivalent model on 1 296
+// binaries instead of 10 368 — same feasibility verdict, a fraction of the work,
+// which matters when the solver runs in the browser on every candidate pair.
+// (Scheduling the resulting matchups over eight matchdays is a separate
+// question — see the noncompact draw outcomes discussed in the paper.)
 //
 // Constraints (in order, matching Julia):
 //   1. A team cannot play against itself:
-//        ∑_t x_i_i_t = 0  ∀i
+//        x_i_i = 0  ∀i
 //
-//   2. Each ordered pair (i,j) with i≠j plays at most once across all matchdays:
-//        ∑_t (x_i_j_t + x_j_i_t) ≤ 1  ∀i≠j
+//   2. Each unordered pair {i,j} meets at most once:
+//        x_i_j + x_j_i ≤ 1  ∀i≠j
 //
 //   3. Each team plays exactly 1 home and 1 away match against each pot:
-//        ∑_t ∑_{j in pot} x_i_j_t = 1  ∀i, ∀pot
-//        ∑_t ∑_{j in pot} x_j_i_t = 1  ∀i, ∀pot
+//        ∑_{j in pot} x_i_j = 1  ∀i, ∀pot
+//        ∑_{j in pot} x_j_i = 1  ∀i, ∀pot
 //
 //   4. Candidate match for selected team (the pair being tested):
-//        ∑_t x_selectedTeam_home_t = 1
-//        ∑_t x_away_selectedTeam_t = 1
+//        x_selectedTeam_home = 1
+//        x_away_selectedTeam = 1
 //
 //   5. Already-drawn home matches:
-//        ∑_t x_teamId_oppId_t = 1  for each (teamId, oppId) in playedHome
+//        x_teamId_oppId = 1  for each (teamId, oppId) in playedHome
 //
 //   6. Already-drawn away matches:
-//        ∑_t x_oppId_teamId_t = 1  for each (teamId, oppId) in playedAway
+//        x_oppId_teamId = 1  for each (teamId, oppId) in playedAway
 //
 //   7. Same-nationality teams cannot play each other:
-//        ∑_t x_i_j_t = 0  ∀i≠j where country(i) == country(j)
+//        x_i_j = 0  ∀i≠j where country(i) == country(j)
 //
 //   8. At most 2 matches (home + away) against teams of any one nationality:
-//        ∑_t ∑_{j: country(j)==nat} (x_i_j_t + x_j_i_t) ≤ 2  ∀i, ∀nat
+//        ∑_{j: country(j)==nat} (x_i_j + x_j_i) ≤ 2  ∀i, ∀nat
 
 export async function solveProblem(
   selectedTeam: Team,
@@ -76,30 +99,23 @@ export async function solveProblem(
   candidateMatch: { home: Team; away: Team },
 ): Promise<boolean> {
   const solver = await initSolver();
-  if (!solver) throw new Error("Solver not initialized");
+  if (!solver) throw new SolverError("Solver not initialized");
 
-  const T = 8; // number of matchdays
-
-  // Variable name: x_i_j_t (0-based i, j, t)
-  const x = (i: number, j: number, t: number) => `x_${i}_${j}_${t}`;
-
-  // Sum of x_i_j_t over all matchdays t
-  const sumT = (i: number, j: number) =>
-    Array.from({ length: T }, (_, t) => x(i, j, t)).join(" + ");
+  // Variable name: x_i_j (0-based i, j) — 1 iff i hosts j.
+  const x = (i: number, j: number) => `x_${i}_${j}`;
 
   let problem = "Maximize\n obj: 0\nSubject To\n";
   let c = 0;
 
   // ── 1. A team cannot play against itself ──────────────────────────────────
   for (let i = 0; i < NB_TEAMS; i++) {
-    problem += ` c${c++}: ${sumT(i, i)} = 0\n`;
+    problem += ` c${c++}: ${x(i, i)} = 0\n`;
   }
 
-  // ── 2. Each ordered pair (i,j) plays at most once across all matchdays ────
+  // ── 2. Each pair of teams meets at most once ──────────────────────────────
   for (let i = 0; i < NB_TEAMS; i++) {
-    for (let j = 0; j < NB_TEAMS; j++) {
-      if (i === j) continue;
-      problem += ` c${c++}: ${sumT(i, j)} + ${sumT(j, i)} <= 1\n`;
+    for (let j = i + 1; j < NB_TEAMS; j++) {
+      problem += ` c${c++}: ${x(i, j)} + ${x(j, i)} <= 1\n`;
     }
   }
 
@@ -112,18 +128,14 @@ export async function solveProblem(
     ) {
       // Exactly 1 home match against this pot
       const homeTerms: string[] = [];
-      for (let k = 0; k < NB_TEAMS_PER_POT; k++) {
-        const j = potStart + k;
-        for (let t = 0; t < T; t++) homeTerms.push(x(i, j, t));
-      }
-      problem += ` c${c++}: ${homeTerms.join(" + ")} = 1\n`;
-
       // Exactly 1 away match against this pot
       const awayTerms: string[] = [];
       for (let k = 0; k < NB_TEAMS_PER_POT; k++) {
         const j = potStart + k;
-        for (let t = 0; t < T; t++) awayTerms.push(x(j, i, t));
+        homeTerms.push(x(i, j));
+        awayTerms.push(x(j, i));
       }
+      problem += ` c${c++}: ${homeTerms.join(" + ")} = 1\n`;
       problem += ` c${c++}: ${awayTerms.join(" + ")} = 1\n`;
     }
   }
@@ -131,20 +143,20 @@ export async function solveProblem(
   // ── 4. Candidate match for the selected team ──────────────────────────────
   //   selectedTeam (H) vs candidateMatch.home (A)  →  selectedTeam hosts home
   //   candidateMatch.away (H) vs selectedTeam (A)  →  away hosts selectedTeam
-  problem += ` c${c++}: ${sumT(selectedTeam.id, candidateMatch.home.id)} = 1\n`;
-  problem += ` c${c++}: ${sumT(candidateMatch.away.id, selectedTeam.id)} = 1\n`;
+  problem += ` c${c++}: ${x(selectedTeam.id, candidateMatch.home.id)} = 1\n`;
+  problem += ` c${c++}: ${x(candidateMatch.away.id, selectedTeam.id)} = 1\n`;
 
   // ── 5. Already-drawn home matches ─────────────────────────────────────────
   for (let teamId = 0; teamId < NB_TEAMS; teamId++) {
     for (const oppId of constraints.playedHome[teamId] ?? []) {
-      problem += ` c${c++}: ${sumT(teamId, oppId)} = 1\n`;
+      problem += ` c${c++}: ${x(teamId, oppId)} = 1\n`;
     }
   }
 
   // ── 6. Already-drawn away matches ─────────────────────────────────────────
   for (let teamId = 0; teamId < NB_TEAMS; teamId++) {
     for (const oppId of constraints.playedAway[teamId] ?? []) {
-      problem += ` c${c++}: ${sumT(oppId, teamId)} = 1\n`;
+      problem += ` c${c++}: ${x(oppId, teamId)} = 1\n`;
     }
   }
 
@@ -153,7 +165,7 @@ export async function solveProblem(
     for (let j = 0; j < NB_TEAMS; j++) {
       if (i === j) continue;
       if (TEAMS[i].country === TEAMS[j].country) {
-        problem += ` c${c++}: ${sumT(i, j)} = 0\n`;
+        problem += ` c${c++}: ${x(i, j)} = 0\n`;
       }
     }
   }
@@ -164,11 +176,7 @@ export async function solveProblem(
       const natTerms: string[] = [];
       for (let j = 0; j < NB_TEAMS; j++) {
         if (i === j) continue;
-        if (TEAMS[j].country === nat) {
-          for (let t = 0; t < T; t++) {
-            natTerms.push(x(i, j, t), x(j, i, t));
-          }
-        }
+        if (TEAMS[j].country === nat) natTerms.push(x(i, j), x(j, i));
       }
       if (natTerms.length > 0) {
         problem += ` c${c++}: ${natTerms.join(" + ")} <= 2\n`;
@@ -180,19 +188,24 @@ export async function solveProblem(
   let binaries = "Binary\n";
   for (let i = 0; i < NB_TEAMS; i++) {
     for (let j = 0; j < NB_TEAMS; j++) {
-      for (let t = 0; t < T; t++) {
-        binaries += ` ${x(i, j, t)}\n`;
-      }
+      binaries += ` ${x(i, j)}\n`;
     }
   }
 
   problem += binaries + "End";
 
+  let solution: { Status?: string };
   try {
-    const solution = solver.solve(problem);
-    return solution.Status === "Optimal";
+    solution = solver.solve(problem);
   } catch (e) {
-    console.error("Solver error:", e);
-    return false;
+    // A HiGHS failure is not the same thing as an infeasible model — reporting
+    // it as "infeasible" is what turned a broken WASM build into a bogus
+    // "no feasible match found" on the very first pick. Surface it instead.
+    throw new SolverError("HiGHS failed to solve the draw model.", e);
   }
+
+  if (solution.Status === "Optimal") return true;
+  if (solution.Status === "Infeasible") return false;
+
+  throw new SolverError(`Unexpected solver status: ${solution.Status}`);
 }

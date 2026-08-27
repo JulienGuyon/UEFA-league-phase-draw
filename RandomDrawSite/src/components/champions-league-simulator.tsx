@@ -453,8 +453,7 @@ export function ChampionsLeagueSimulator() {
               <div className="rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20 px-4 py-3 flex items-center gap-2">
                 <span className="text-amber-500 shrink-0 text-sm">⚠</span>
                 <p className="text-sm text-amber-700 dark:text-amber-300 font-medium">
-                  Fatal: no feasible match found. Press Reset to start a new
-                  draw.
+                  {fatalError} Press New Draw to start over.
                 </p>
               </div>
             ) : (

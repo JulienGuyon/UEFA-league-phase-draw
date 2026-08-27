@@ -5,35 +5,12 @@ import { Button } from "./components/ui/button";
 import {
   Github,
   ExternalLink,
-  Award,
-  BarChart4,
-  Calendar,
   Newspaper,
-  Shield,
-  Dices,
-  Trophy,
-  Zap,
-  Sparkles,
-  Lightbulb,
-  BarChart3,
-  Compass,
-  BookOpenText,
   ArrowUpRight,
   Menu,
   X,
 } from "lucide-react";
 import { useState } from "react";
-
-const keywords = [
-  "Fairness in Sports",
-  "Draw Procedure",
-  "Sports Scheduling",
-  "Graph Theory",
-  "Chromatic Index",
-  "Integer Programming",
-  "Monte Carlo Simulations",
-  "UEFA Champions League",
-];
 
 const authors = [
   "Adle Ben Salem",
@@ -51,19 +28,14 @@ const navItems = [
 ];
 
 function FeatureCard({
-  icon: Icon,
   title,
   description,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
 }) {
   return (
-    <div className="group hover-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6 transition-all">
-      <div className="mb-3 md:mb-4 hidden md:inline-flex items-center justify-center rounded-lg bg-[var(--uefa-blue)]/8 p-2 md:p-2.5 transition-colors group-hover:bg-[var(--uefa-blue)]/12">
-        <Icon className="h-4 w-4 md:h-5 md:w-5 text-[var(--uefa-blue)]" />
-      </div>
+    <div className="hover-lift rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-5 md:p-6">
       <h3 className="mb-1.5 md:mb-2 text-sm md:text-base font-semibold text-[hsl(var(--foreground))]">
         {title}
       </h3>
@@ -75,22 +47,17 @@ function FeatureCard({
 }
 
 function SectionHeader({
-  icon: Icon,
   title,
   description,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
   title: string;
   description: string;
 }) {
   return (
     <div className="mb-8 md:mb-10 text-center">
-      <div className="mt-3 flex items-center justify-center gap-2 md:gap-3">
-        <Icon className="h-5 w-5 md:h-7 md:w-7 text-[var(--uefa-gold)]" />
-        <h2 className="font-display text-2xl md:text-3xl lg:text-4xl tracking-tight text-[hsl(var(--foreground))]">
-          {title}
-        </h2>
-      </div>
+      <h2 className="font-display text-2xl md:text-3xl lg:text-4xl tracking-tight text-[hsl(var(--foreground))]">
+        {title}
+      </h2>
       <p className="mx-auto mt-3 md:mt-4 max-w-2xl text-sm md:text-base text-[hsl(var(--muted-foreground))]">
         {description}
       </p>
@@ -233,18 +200,6 @@ export default function Home() {
               competitive balance
             </p>
 
-            {/* Keywords — show fewer on mobile */}
-            <div className="mt-5 md:mt-8 flex flex-wrap justify-center gap-1.5 md:gap-2">
-              {keywords.slice(0, isMobile ? 4 : keywords.length).map((keyword) => (
-                <span
-                  key={keyword}
-                  className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 md:px-3 md:py-1 text-[10px] md:text-xs text-white/70 backdrop-blur-sm"
-                >
-                  {keyword}
-                </span>
-              ))}
-            </div>
-
             {/* Authors — horizontal scroll on mobile */}
             <div className="mt-5 md:mt-8 flex flex-wrap justify-center gap-2 md:gap-3">
               {authors.map((name) => (
@@ -293,7 +248,6 @@ export default function Home() {
                   className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10 hover:text-white font-medium px-4 md:px-5 h-9 md:h-10 text-xs md:text-sm flex-1 sm:flex-initial"
                 >
                   <a href="#simulator">
-                    <Dices className="mr-1.5 h-3.5 w-3.5 md:h-4 md:w-4" />
                     Simulator
                   </a>
                 </Button>
@@ -305,7 +259,6 @@ export default function Home() {
         {/* Format Overview */}
         <section id="introduction" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <SectionHeader
-            icon={Trophy}
             title="New Format Overview"
             description="Starting in 2024, the UEFA Champions League introduces a revolutionary format with 36 teams in a single league table."
           />
@@ -329,32 +282,26 @@ export default function Home() {
 
           <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-3">
             <FeatureCard
-              icon={Calendar}
               title="8 Match Days"
               description="Each team plays exactly eight matches against eight different opponents."
             />
             <FeatureCard
-              icon={BarChart4}
               title="4 Seeding Pots"
               description="Teams are divided into four pots of nine, based on UEFA coefficient."
             />
             <FeatureCard
-              icon={Award}
               title="Balanced Competition"
               description="Each team faces two teams from each pot — one home, one away."
             />
             <FeatureCard
-              icon={Shield}
               title="Country Protection"
               description="Teams cannot face opponents from the same country."
             />
             <FeatureCard
-              icon={Zap}
               title="Scheduling Integrity"
               description="All matches must fit within pre-defined match days."
             />
             <FeatureCard
-              icon={Sparkles}
               title="Match Consistency"
               description="Equal mix of home and away matches ensures parity."
             />
@@ -365,9 +312,8 @@ export default function Home() {
         <section id="simulator" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
-              icon={Dices}
               title="Draw Simulator"
-              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator."
+              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator, seeded with the 2026/27 league phase pots."
             />
 
             {/* Draw procedure image — hidden on mobile */}
@@ -389,7 +335,6 @@ export default function Home() {
         <section id="counter-example" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
-              icon={Lightbulb}
               title="Scheduling Challenges"
               description="Discovering the mathematical complexities in the new format"
             />
@@ -418,7 +363,6 @@ export default function Home() {
         <section id="approach" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
-              icon={Compass}
               title="Build Schedule First"
               description="A systematic method to ensure fair and feasible tournament scheduling"
             />
@@ -446,7 +390,6 @@ export default function Home() {
         <section id="numerical-analysis" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
-              icon={BarChart3}
               title="Numerical Analysis"
               description="Quantifying fairness across different draw methodologies"
             />
@@ -480,7 +423,6 @@ export default function Home() {
         <section className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
-              icon={BookOpenText}
               title="Research Paper"
               description="Explore the mathematical foundations of our work."
             />

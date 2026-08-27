@@ -1,9 +1,12 @@
 export interface Team {
-  // The id to the rank of the team in the UEFA ranking (0-based)
+  // Index of the team in the TEAMS array — teams are looked up with TEAMS[id],
+  // so this must always match the array position.
   id: number;
   name: string;
   country: string;
-  elo: number;
+  // Position in the UEFA club coefficient ranking, null when unranked.
+  rank: number | null;
+  // UEFA club coefficient.
   uefa: number;
   pot: number;
 }

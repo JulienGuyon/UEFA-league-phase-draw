@@ -104,32 +104,13 @@
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     overflow: hidden;
-    position: relative;
-  }
-
-  .section-card::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(
-      90deg,
-      var(--uefa-blue),
-      var(--uefa-gold),
-      var(--uefa-blue)
-    );
-    opacity: 0.8;
   }
 
   .hover-lift {
-    transition: transform 0.25s cubic-bezier(0.33, 1, 0.68, 1),
-      box-shadow 0.25s cubic-bezier(0.33, 1, 0.68, 1);
+    transition: border-color 0.2s ease;
   }
   .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px -12px rgba(14, 30, 91, 0.15);
+    border-color: hsl(var(--muted-foreground) / 0.35);
   }
 
   .bg-grid {

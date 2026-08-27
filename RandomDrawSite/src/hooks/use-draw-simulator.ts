@@ -6,7 +6,7 @@ import {
   updateConstraints,
   preadmissibleOpponentCouples,
 } from "../lib/logic";
-import { solveProblem } from "../lib/solver";
+import { SolverError, solveProblem } from "../lib/solver";
 
 export type Phase =
   | "idle"
@@ -149,7 +149,8 @@ export const POT_COLORS = [
 export function useDrawSimulator() {
   const [state, setState] = useState<SimulatorState>(initialState);
   const [activeTablePot, setActiveTablePot] = useState(0);
-  const [fatalError, setFatalError] = useState(false);
+  // Message shown when the draw cannot continue — null while everything is fine.
+  const [fatalError, setFatalError] = useState<string | null>(null);
 
   const [autoMode, setAutoMode] = useState(false);
   const autoRef = useRef(false);
@@ -161,7 +162,7 @@ export function useDrawSimulator() {
     if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
     setState(initialState());
     setActiveTablePot(0);
-    setFatalError(false);
+    setFatalError(null);
   }, []);
 
   const currentTeam =
@@ -258,7 +259,9 @@ export function useDrawSimulator() {
         const team = s.drawOrder[s.drawIndex];
 
         if (s.admissible.length === 0) {
-          setFatalError(true);
+          setFatalError(
+            `No admissible opponent pair left for ${team.name} in Pot ${s.currentPotIndex + 1}.`,
+          );
           const next: SimulatorState = { ...s, phase: "done" };
           setState(next);
           return null;
@@ -270,10 +273,32 @@ export function useDrawSimulator() {
           solverProgress: { tested: 0, total: s.admissible.length },
         }));
 
-        const result = await runSolver(team, s.constraints, s.admissible);
+        let result: { home: Team; away: Team } | null = null;
+        try {
+          result = await runSolver(team, s.constraints, s.admissible);
+        } catch (e) {
+          // The solver broke down; that is not the same as an infeasible draw,
+          // and saying "no feasible match" here would be misleading.
+          console.error(e);
+          setFatalError(
+            e instanceof SolverError
+              ? `${e.message} The draw cannot continue.`
+              : "Unexpected error while running the draw.",
+          );
+          const next: SimulatorState = {
+            ...s,
+            isLoading: false,
+            solverProgress: null,
+            phase: "done",
+          };
+          setState(next);
+          return null;
+        }
 
         if (!result) {
-          setFatalError(true);
+          setFatalError(
+            `No feasible pair for ${team.name} in Pot ${s.currentPotIndex + 1} — every admissible pair leads to a dead end.`,
+          );
           const next: SimulatorState = {
             ...s,
             isLoading: false,
