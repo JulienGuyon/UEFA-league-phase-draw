@@ -330,7 +330,7 @@ export default function Home() {
             {isMobile ? <MobileDrawSimulator /> : <ChampionsLeagueSimulator />}
           </div>
         </section>
-
+ 
         {/* Counter Example */}
         <section id="counter-example" className="scroll-mt-16 md:scroll-mt-20 py-12 md:py-20">
           <div className="section-card p-4 md:p-8 lg:p-12">
