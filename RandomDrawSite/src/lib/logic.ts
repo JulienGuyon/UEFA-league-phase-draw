@@ -1,14 +1,13 @@
-import type { Team, Constraints } from "./types";
-import { TEAMS, POTS } from "./data";
+import type { Competition, Constraints, Team } from "./types";
 import { solveProblem } from "./solver";
 
 // Initialize the constraints with the initial state of the draw (no matches played)
-export function initializeConstraints(): Constraints {
+export function initializeConstraints(competition: Competition): Constraints {
   const playedHome: Record<number, number[]> = {};
   const playedAway: Record<number, number[]> = {};
   const nationalities: Record<number, Record<string, number>> = {};
 
-  TEAMS.forEach((t) => {
+  competition.teams.forEach((t) => {
     playedHome[t.id] = [];
     playedAway[t.id] = [];
     nationalities[t.id] = {};
@@ -53,34 +52,36 @@ const isPreAdmissibleOpponent = (
 ): boolean =>
   opponent_team.id !== selected_team.id &&
   opponent_team.country !== selected_team.country &&
-  (constraints.nationalities[selected_team.id][opponent_team.country] ?? 0) < 2 &&
+  (constraints.nationalities[selected_team.id][opponent_team.country] ?? 0) <
+    2 &&
   (constraints.nationalities[opponent_team.id][selected_team.country] ?? 0) < 2;
-
 
 // Returns all pre-admissible (home, away) couples for the given team and pot.
 // If the home or away match for this pot is already decided (drawn earlier when
 // an opponent team was processed), that fixed opponent is used directly.
 // Constraints are NEVER updated here — read-only.
 export function preadmissibleOpponentCouples(
+  competition: Competition,
   team: Team,
   opponentPotIndex: number,
   constraints: Constraints,
 ): { home: Team; away: Team }[] {
-  const potTeams = POTS[opponentPotIndex as keyof typeof POTS];
+  const teams = competition.teams;
+  const potTeams = competition.pots[opponentPotIndex];
 
   // Check whether a home or away match from this pot is already recorded.
   // IMPORTANT: use !== undefined (not truthiness) because id=0 is falsy.
   const existingHomeId = constraints.playedHome[team.id].find(
-    (id) => TEAMS[id]?.pot === opponentPotIndex,
+    (id) => teams[id]?.pot === opponentPotIndex,
   );
   const existingAwayId = constraints.playedAway[team.id].find(
-    (id) => TEAMS[id]?.pot === opponentPotIndex,
+    (id) => teams[id]?.pot === opponentPotIndex,
   );
 
   const existingHome =
-    existingHomeId !== undefined ? TEAMS[existingHomeId] : undefined;
+    existingHomeId !== undefined ? teams[existingHomeId] : undefined;
   const existingAway =
-    existingAwayId !== undefined ? TEAMS[existingAwayId] : undefined;
+    existingAwayId !== undefined ? teams[existingAwayId] : undefined;
 
   // Both already fixed → return the single decided pair immediately
   if (existingHome !== undefined && existingAway !== undefined) {
@@ -104,16 +105,23 @@ export function preadmissibleOpponentCouples(
     for (const a of awayCandidates) {
       if (h.id === a.id) continue;
 
-
       // h VISITS selected team → h consumes its away slot against team.pot.
       // Reject h only if it already has an away match against a DIFFERENT team from team.pot.
-      if (constraints.playedAway[h.id].some((id) => TEAMS[id]?.pot === team.pot && id !== team.id)) {
+      if (
+        constraints.playedAway[h.id].some(
+          (id) => teams[id]?.pot === team.pot && id !== team.id,
+        )
+      ) {
         continue;
       }
 
       // a HOSTS selected team → a consumes its home slot against team.pot.
       // Reject a only if it already has a home match against a DIFFERENT team from team.pot.
-      if (constraints.playedHome[a.id].some((id) => TEAMS[id]?.pot === team.pot && id !== team.id)) {
+      if (
+        constraints.playedHome[a.id].some(
+          (id) => teams[id]?.pot === team.pot && id !== team.id,
+        )
+      ) {
         continue;
       }
 
@@ -127,11 +135,13 @@ export function preadmissibleOpponentCouples(
 // Finds a feasible (home, away) pair for team from opponentPotIndex.
 // Used standalone (outside the UI solver loop) if needed.
 export async function findOpponentsForTeam(
+  competition: Competition,
   team: Team,
   opponentPotIndex: number,
   constraints: Constraints,
 ): Promise<{ home: Team; away: Team } | null> {
   const couples = preadmissibleOpponentCouples(
+    competition,
     team,
     opponentPotIndex,
     constraints,
@@ -139,7 +149,10 @@ export async function findOpponentsForTeam(
   const shuffled = [...couples].sort(() => Math.random() - 0.5);
 
   for (const { home, away } of shuffled) {
-    const isFeasible = await solveProblem(team, constraints, { home, away });
+    const isFeasible = await solveProblem(competition, team, constraints, {
+      home,
+      away,
+    });
     if (isFeasible) return { home, away };
   }
 

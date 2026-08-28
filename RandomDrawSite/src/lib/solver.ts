@@ -1,5 +1,5 @@
-import type { Team, Constraints } from "./types";
-import { TEAMS, ALL_NATIONALITIES, NB_TEAMS, NB_TEAMS_PER_POT } from "./data";
+import type { Competition, Constraints, Team } from "./types";
+import { NB_TEAMS, NB_TEAMS_PER_POT } from "./data";
 // The WASM binary MUST come from the same highs-js release as the JS glue we
 // import below. Loading it from lovasoa.github.io (which tracks the latest
 // release) against our pinned glue made every solve throw "memory access out of
@@ -94,12 +94,15 @@ export async function initSolver() {
 //        ∑_{j: country(j)==nat} (x_i_j + x_j_i) ≤ 2  ∀i, ∀nat
 
 export async function solveProblem(
+  competition: Competition,
   selectedTeam: Team,
   constraints: Constraints,
   candidateMatch: { home: Team; away: Team },
 ): Promise<boolean> {
   const solver = await initSolver();
   if (!solver) throw new SolverError("Solver not initialized");
+
+  const teams = competition.teams;
 
   // Variable name: x_i_j (0-based i, j) — 1 iff i hosts j.
   const x = (i: number, j: number) => `x_${i}_${j}`;
@@ -164,19 +167,19 @@ export async function solveProblem(
   for (let i = 0; i < NB_TEAMS; i++) {
     for (let j = 0; j < NB_TEAMS; j++) {
       if (i === j) continue;
-      if (TEAMS[i].country === TEAMS[j].country) {
+      if (teams[i].country === teams[j].country) {
         problem += ` c${c++}: ${x(i, j)} = 0\n`;
       }
     }
   }
 
   // ── 8. At most 2 matches against teams of the same nationality ────────────
-  for (const nat of ALL_NATIONALITIES) {
+  for (const nat of competition.nationalities) {
     for (let i = 0; i < NB_TEAMS; i++) {
       const natTerms: string[] = [];
       for (let j = 0; j < NB_TEAMS; j++) {
         if (i === j) continue;
-        if (TEAMS[j].country === nat) natTerms.push(x(i, j), x(j, i));
+        if (teams[j].country === nat) natTerms.push(x(i, j), x(j, i));
       }
       if (natTerms.length > 0) {
         problem += ` c${c++}: ${natTerms.join(" + ")} <= 2\n`;

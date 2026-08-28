@@ -1,13 +1,14 @@
 "use client";
 
-import { POTS } from "../lib/data";
-import type { Team, Constraints } from "../lib/types";
+import { NB_TEAMS } from "../lib/data";
+import type { Competition, Constraints, Team } from "../lib/types";
 import {
   useDrawSimulator,
   getHomeOpponent,
   getAwayOpponent,
   startingPotIndex,
   POT_COLORS,
+  POT_INDICES,
   type FlashSet,
 } from "../hooks/use-draw-simulator";
 import {
@@ -89,17 +90,19 @@ function AdmissibleList({
 }
 
 function ResultTable({
+  competition,
   constraints,
   activePot,
   flash,
   highlightTeamId,
 }: {
+  competition: Competition;
   constraints: Constraints;
   activePot: number;
   flash: FlashSet;
   highlightTeamId: number | null;
 }) {
-  const potTeams = POTS[activePot as keyof typeof POTS];
+  const potTeams = competition.pots[activePot];
   return (
     <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))]">
       <table className="w-full text-[11px] border-collapse">
@@ -108,7 +111,7 @@ function ResultTable({
             <th className="px-3 py-2.5 text-left font-semibold text-[hsl(var(--muted-foreground))] w-28">
               Team
             </th>
-            {[0, 1, 2, 3].map((p) => (
+            {POT_INDICES.map((p) => (
               <th key={p} colSpan={2} className="px-1.5 py-2.5 text-center">
                 <PotBadge potIndex={p} small />
               </th>
@@ -118,7 +121,7 @@ function ResultTable({
             {/* Empty spacer above the team-name column — the home/plane icons
                 below already say which side of the tie each column holds. */}
             <th className="px-3 py-1" />
-            {[0, 1, 2, 3].map((p) => (
+            {POT_INDICES.map((p) => (
               <>
                 <th
                   key={`${p}-h`}
@@ -159,9 +162,9 @@ function ResultTable({
                 >
                   {team.name}
                 </td>
-                {[0, 1, 2, 3].map((pi) => {
-                  const h = getHomeOpponent(team.id, pi, constraints);
-                  const a = getAwayOpponent(team.id, pi, constraints);
+                {POT_INDICES.map((pi) => {
+                  const h = getHomeOpponent(competition, team.id, pi, constraints);
+                  const a = getAwayOpponent(competition, team.id, pi, constraints);
                   const hFlash = flash[`${team.id}-${pi}-h`];
                   const aFlash = flash[`${team.id}-${pi}-a`];
                   return (
@@ -202,8 +205,8 @@ function ResultTable({
   );
 }
 
-export function ChampionsLeagueSimulator() {
-  const sim = useDrawSimulator();
+export function DrawSimulator({ competition }: { competition: Competition }) {
+  const sim = useDrawSimulator(competition);
   const {
     state,
     currentTeam,
@@ -220,7 +223,12 @@ export function ChampionsLeagueSimulator() {
   } = sim;
 
   return (
-    <div className="flex flex-col gap-5">
+    // The competition accent is exposed as a CSS variable so the primary
+    // controls below identify which league phase is being drawn.
+    <div
+      className="flex flex-col gap-5"
+      style={{ "--accent": competition.accent } as React.CSSProperties}
+    >
       {/* Progress */}
       <div className="space-y-1.5">
         <div className="flex justify-between text-[11px] text-[hsl(var(--muted-foreground))] font-medium">
@@ -228,7 +236,7 @@ export function ChampionsLeagueSimulator() {
           <span>
             {state.phase === "done"
               ? "Complete"
-              : `Team ${Math.max(state.drawIndex + 1, 0)} / 36`}
+              : `Team ${Math.max(state.drawIndex + 1, 0)} / ${NB_TEAMS}`}
           </span>
         </div>
         <div className="h-1 w-full rounded-full bg-[hsl(var(--muted))] overflow-hidden">
@@ -256,12 +264,20 @@ export function ChampionsLeagueSimulator() {
 
               {currentTeam && (
                 <div className="mt-3 grid grid-cols-4 gap-1.5">
-                  {[0, 1, 2, 3].map((pi) => {
+                  {POT_INDICES.map((pi) => {
                     const isDone =
-                      getHomeOpponent(currentTeam.id, pi, state.constraints) !==
-                        null &&
-                      getAwayOpponent(currentTeam.id, pi, state.constraints) !==
-                        null;
+                      getHomeOpponent(
+                        competition,
+                        currentTeam.id,
+                        pi,
+                        state.constraints,
+                      ) !== null &&
+                      getAwayOpponent(
+                        competition,
+                        currentTeam.id,
+                        pi,
+                        state.constraints,
+                      ) !== null;
                     const isSkipped = pi < startingPotIndex(currentTeam);
                     const isCurrent =
                       pi === state.currentPotIndex &&
@@ -307,7 +323,7 @@ export function ChampionsLeagueSimulator() {
               className={`flex-1 flex items-center justify-center gap-2 rounded-lg px-4 py-3 font-semibold text-sm transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed ${
                 state.phase === "done"
                   ? "bg-[hsl(var(--foreground))] text-[hsl(var(--background))]"
-                  : "bg-[var(--uefa-blue)] hover:bg-[var(--uefa-blue-light)] text-white"
+                  : "bg-[var(--accent)] hover:opacity-90 text-white"
               }`}
             >
               {state.isLoading ? (
@@ -392,11 +408,13 @@ export function ChampionsLeagueSimulator() {
             currentTeam &&
             (() => {
               const homeOpp = getHomeOpponent(
+                competition,
                 currentTeam.id,
                 state.currentPotIndex,
                 state.constraints,
               );
               const awayOpp = getAwayOpponent(
+                competition,
                 currentTeam.id,
                 state.currentPotIndex,
                 state.constraints,
@@ -423,7 +441,7 @@ export function ChampionsLeagueSimulator() {
         {/* Right panel */}
         <div className="space-y-3">
           <div className="flex gap-1.5 flex-wrap items-center">
-            {[0, 1, 2, 3].map((p) => (
+            {POT_INDICES.map((p) => (
               <button
                 key={p}
                 onClick={() => setActiveTablePot(p)}
@@ -442,6 +460,7 @@ export function ChampionsLeagueSimulator() {
           </div>
 
           <ResultTable
+            competition={competition}
             constraints={state.constraints}
             activePot={activeTablePot}
             flash={state.flash}

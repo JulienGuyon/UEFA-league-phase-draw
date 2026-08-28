@@ -36,6 +36,10 @@
     --uefa-gold: #c9a84c;
     --uefa-gold-light: #d4b968;
     --uefa-gold-dark: #a88a34;
+    /* Europa League accent — deep enough to carry white text at AA contrast,
+       which the brand's brighter orange does not. */
+    --uefa-orange: #b84d0d;
+    --uefa-orange-light: #d2620f;
   }
 
   .dark {

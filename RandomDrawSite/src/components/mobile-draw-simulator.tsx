@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { TEAMS } from "../lib/data";
-import type { Team } from "../lib/types";
+import { NB_TEAMS } from "../lib/data";
+import type { Competition, Team } from "../lib/types";
 import {
   useDrawSimulator,
   getHomeOpponent,
   getAwayOpponent,
   startingPotIndex,
   POT_COLORS,
+  POT_INDICES,
 } from "../hooks/use-draw-simulator";
 import {
   Trophy,
@@ -35,12 +36,14 @@ function MobilePotBadge({ potIndex }: { potIndex: number }) {
 }
 
 function TeamMatchupCard({
+  competition,
   team,
   constraints,
   currentPotIndex,
   isDrawing,
   flash,
 }: {
+  competition: Competition;
   team: Team;
   constraints: import("../lib/types").Constraints;
   currentPotIndex: number;
@@ -50,9 +53,9 @@ function TeamMatchupCard({
   return (
     <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
       <div className="divide-y divide-[hsl(var(--border))]/50">
-        {[0, 1, 2, 3].map((pi) => {
-          const homeOpp = getHomeOpponent(team.id, pi, constraints);
-          const awayOpp = getAwayOpponent(team.id, pi, constraints);
+        {POT_INDICES.map((pi) => {
+          const homeOpp = getHomeOpponent(competition, team.id, pi, constraints);
+          const awayOpp = getAwayOpponent(competition, team.id, pi, constraints);
           const isActive = isDrawing && pi === currentPotIndex;
           const isSkipped = isDrawing && pi < startingPotIndex(team);
           const isDone = homeOpp !== null && awayOpp !== null;
@@ -155,8 +158,12 @@ function TeamBrowseChip({
   );
 }
 
-export function MobileDrawSimulator() {
-  const sim = useDrawSimulator();
+export function MobileDrawSimulator({
+  competition,
+}: {
+  competition: Competition;
+}) {
+  const sim = useDrawSimulator(competition);
   const {
     state,
     currentTeam,
@@ -175,9 +182,7 @@ export function MobileDrawSimulator() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const displayTeam =
-    browseTeamId !== null
-      ? TEAMS[browseTeamId]
-      : currentTeam;
+    browseTeamId !== null ? competition.teams[browseTeamId] : currentTeam;
 
   const isBrowsing = browseTeamId !== null;
 
@@ -217,7 +222,12 @@ export function MobileDrawSimulator() {
   }, [state.drawIndex, state.phase]);
 
   return (
-    <div className="flex flex-col gap-4">
+    // The competition accent is exposed as a CSS variable so the primary
+    // controls below identify which league phase is being drawn.
+    <div
+      className="flex flex-col gap-4"
+      style={{ "--accent": competition.accent } as React.CSSProperties}
+    >
       {/* Progress bar */}
       <div className="space-y-1">
         <div className="flex justify-between text-[10px] text-[hsl(var(--muted-foreground))] font-medium">
@@ -225,7 +235,7 @@ export function MobileDrawSimulator() {
           <span>
             {state.phase === "done"
               ? "Complete"
-              : `Team ${Math.max(state.drawIndex + 1, 0)} / 36`}
+              : `Team ${Math.max(state.drawIndex + 1, 0)} / ${NB_TEAMS}`}
           </span>
         </div>
         <div className="h-1 w-full rounded-full bg-[hsl(var(--muted))] overflow-hidden">
@@ -293,6 +303,7 @@ export function MobileDrawSimulator() {
             </span>
           </div>
           <TeamMatchupCard
+            competition={competition}
             team={displayTeam}
             constraints={state.constraints}
             currentPotIndex={state.currentPotIndex}
@@ -374,7 +385,7 @@ export function MobileDrawSimulator() {
           className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-4 py-3.5 font-semibold text-sm transition-all duration-200 active:scale-[0.97] disabled:opacity-40 disabled:cursor-not-allowed ${
             state.phase === "done"
               ? "bg-[hsl(var(--foreground))] text-[hsl(var(--background))]"
-              : "bg-[var(--uefa-blue)] text-white"
+              : "bg-[var(--accent)] text-white"
           }`}
         >
           {state.isLoading ? (
@@ -401,7 +412,7 @@ export function MobileDrawSimulator() {
             className={`flex items-center justify-center rounded-xl w-12 transition-all duration-200 active:scale-[0.97] ${
               autoMode
                 ? "bg-[var(--uefa-gold)] text-white"
-                : "bg-[var(--uefa-blue)] text-white"
+                : "bg-[var(--accent)] text-white"
             }`}
           >
             {autoMode ? (

@@ -1,7 +1,15 @@
-import { ChampionsLeagueSimulator } from "./components/champions-league-simulator";
+import { DrawSimulator } from "./components/draw-simulator";
 import { MobileDrawSimulator } from "./components/mobile-draw-simulator";
 import { useIsMobile } from "./hooks/use-is-mobile";
 import { Button } from "./components/ui/button";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "./components/ui/tabs";
+import { COMPETITIONS, DEFAULT_COMPETITION_ID } from "./lib/data";
+import type { CompetitionId } from "./lib/types";
 import {
   Github,
   ExternalLink,
@@ -62,6 +70,54 @@ function SectionHeader({
         {description}
       </p>
     </div>
+  );
+}
+
+// Switches the simulator between the two UEFA league phases. Both tab panels
+// stay mounted (forceMount) so that leaving a half-finished draw to peek at the
+// other competition does not throw the draw away.
+function CompetitionSimulator({ isMobile }: { isMobile: boolean }) {
+  const [active, setActive] = useState<CompetitionId>(DEFAULT_COMPETITION_ID);
+
+  return (
+    <Tabs
+      value={active}
+      onValueChange={(v) => setActive(v as CompetitionId)}
+      className="gap-0"
+    >
+      <TabsList className="h-auto w-full grid grid-cols-2 gap-1 rounded-xl bg-[hsl(var(--muted))]/60 p-1 md:w-fit md:mx-auto">
+        {COMPETITIONS.map((c) => (
+          <TabsTrigger
+            key={c.id}
+            value={c.id}
+            // The accent travels as a CSS variable so each trigger can paint
+            // itself with its own competition colour.
+            style={{ "--tab-accent": c.accent } as React.CSSProperties}
+            className="h-auto flex-col gap-0 rounded-lg px-3 py-2 md:px-6 md:flex-row md:gap-2 data-[state=active]:bg-[var(--tab-accent)] data-[state=active]:text-white data-[state=active]:shadow-sm"
+          >
+            <span className="text-xs md:text-sm font-semibold">{c.name}</span>
+            <span className="text-[10px] md:text-xs font-normal opacity-70">
+              {c.season}
+            </span>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+
+      {COMPETITIONS.map((c) => (
+        <TabsContent
+          key={c.id}
+          value={c.id}
+          forceMount
+          className="mt-5 md:mt-6 data-[state=inactive]:hidden"
+        >
+          {isMobile ? (
+            <MobileDrawSimulator competition={c} />
+          ) : (
+            <DrawSimulator competition={c} />
+          )}
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
@@ -313,7 +369,7 @@ export default function Home() {
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
               title="Draw Simulator"
-              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator, seeded with the 2026/27 league phase pots."
+              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator on either 2026/27 league phase."
             />
 
             {/* Draw procedure image — hidden on mobile */}
@@ -326,8 +382,7 @@ export default function Home() {
               />
             </div>
 
-            {/* Conditional simulator */}
-            {isMobile ? <MobileDrawSimulator /> : <ChampionsLeagueSimulator />}
+            <CompetitionSimulator isMobile={isMobile} />
           </div>
         </section>
  

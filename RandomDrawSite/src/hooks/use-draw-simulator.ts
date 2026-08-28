@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { POTS, TEAMS } from "../lib/data";
-import type { Team, Constraints } from "../lib/types";
+import { NB_POTS, NB_TEAMS } from "../lib/data";
+import type { Competition, Constraints, Team } from "../lib/types";
 import {
   initializeConstraints,
   updateConstraints,
@@ -40,23 +40,19 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-function buildDrawOrder(): Team[] {
-  return [
-    ...shuffle(POTS[0]),
-    ...shuffle(POTS[1]),
-    ...shuffle(POTS[2]),
-    ...shuffle(POTS[3]),
-  ];
+// Teams are drawn pot by pot, in random order inside each pot.
+function buildDrawOrder(competition: Competition): Team[] {
+  return competition.pots.flatMap((pot) => shuffle(pot));
 }
 
-function initialState(): SimulatorState {
+function initialState(competition: Competition): SimulatorState {
   return {
     phase: "idle",
-    drawOrder: buildDrawOrder(),
+    drawOrder: buildDrawOrder(competition),
     drawIndex: -1,
     currentPotIndex: 0,
     admissible: [],
-    constraints: initializeConstraints(),
+    constraints: initializeConstraints(competition),
     isLoading: false,
     solverProgress: null,
     flash: {},
@@ -68,25 +64,29 @@ export function startingPotIndex(team: Team): number {
 }
 
 export function getHomeOpponent(
+  competition: Competition,
   teamId: number,
   potIndex: number,
   c: Constraints,
 ): Team | null {
+  const teams = competition.teams;
   const id = (c.playedHome[teamId] ?? []).find(
-    (id) => TEAMS[id]?.pot === potIndex,
+    (id) => teams[id]?.pot === potIndex,
   );
-  return id !== undefined ? (TEAMS[id] ?? null) : null;
+  return id !== undefined ? (teams[id] ?? null) : null;
 }
 
 export function getAwayOpponent(
+  competition: Competition,
   teamId: number,
   potIndex: number,
   c: Constraints,
 ): Team | null {
+  const teams = competition.teams;
   const id = (c.playedAway[teamId] ?? []).find(
-    (id) => TEAMS[id]?.pot === potIndex,
+    (id) => teams[id]?.pot === potIndex,
   );
-  return id !== undefined ? (TEAMS[id] ?? null) : null;
+  return id !== undefined ? (teams[id] ?? null) : null;
 }
 
 export function countMatches(c: Constraints): number {
@@ -106,6 +106,8 @@ function buildFlashKeys(
     [`${awayOpp.id}-${team.pot}-h`]: true,
   };
 }
+
+export const POT_INDICES = Array.from({ length: NB_POTS }, (_, i) => i);
 
 export const POT_COLORS = [
   {
@@ -146,8 +148,15 @@ export const POT_COLORS = [
   },
 ];
 
-export function useDrawSimulator() {
-  const [state, setState] = useState<SimulatorState>(initialState);
+// One hook instance drives one competition's draw. `competition` is expected to
+// be stable for the lifetime of the instance (the tabs render one instance per
+// competition, keyed by id) — the initial state is built from it once, so
+// swapping it on a live instance would leave the state pointing at the old team
+// list. Give the component a `key` if it ever needs to change.
+export function useDrawSimulator(competition: Competition) {
+  const [state, setState] = useState<SimulatorState>(() =>
+    initialState(competition),
+  );
   const [activeTablePot, setActiveTablePot] = useState(0);
   // Message shown when the draw cannot continue — null while everything is fine.
   const [fatalError, setFatalError] = useState<string | null>(null);
@@ -160,10 +169,10 @@ export function useDrawSimulator() {
     autoRef.current = false;
     setAutoMode(false);
     if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-    setState(initialState());
+    setState(initialState(competition));
     setActiveTablePot(0);
     setFatalError(null);
-  }, []);
+  }, [competition]);
 
   const currentTeam =
     state.drawIndex >= 0 ? state.drawOrder[state.drawIndex] : null;
@@ -178,7 +187,7 @@ export function useDrawSimulator() {
       case "showing-admissible":
         return `Draw Pot ${state.currentPotIndex + 1} Match`;
       case "showing-result":
-        if (state.currentPotIndex < 3)
+        if (state.currentPotIndex < NB_POTS - 1)
           return `Next — Pot ${state.currentPotIndex + 2}`;
         return state.drawIndex + 1 < state.drawOrder.length
           ? "Next Team"
@@ -209,7 +218,10 @@ export function useDrawSimulator() {
         setState((s) => ({ ...s, solverProgress: { tested: i, total } }));
         // Yield to browser before heavy WASM call — critical for Safari iOS
         await new Promise<void>((r) => setTimeout(r, 0));
-        const feasible = await solveProblem(team, constraints, { home, away });
+        const feasible = await solveProblem(competition, team, constraints, {
+          home,
+          away,
+        });
         if (feasible) {
           setState((s) => ({ ...s, solverProgress: { tested: i + 1, total } }));
           return { home, away };
@@ -217,7 +229,7 @@ export function useDrawSimulator() {
       }
       return null;
     },
-    [],
+    [competition],
   );
 
   const step = useCallback(
@@ -242,6 +254,7 @@ export function useDrawSimulator() {
       if (s.phase === "team-selected") {
         const team = s.drawOrder[s.drawIndex];
         const admissible = preadmissibleOpponentCouples(
+          competition,
           team,
           s.currentPotIndex,
           s.constraints,
@@ -336,7 +349,7 @@ export function useDrawSimulator() {
       }
 
       if (s.phase === "showing-result") {
-        if (s.currentPotIndex < 3) {
+        if (s.currentPotIndex < NB_POTS - 1) {
           const next: SimulatorState = {
             ...s,
             phase: "team-selected",
@@ -370,7 +383,7 @@ export function useDrawSimulator() {
 
       return null;
     },
-    [runSolver, scheduleFlashClear],
+    [competition, runSolver, scheduleFlashClear],
   );
 
   const handleNext = useCallback(async () => {
@@ -443,11 +456,14 @@ export function useDrawSimulator() {
   const progress =
     state.drawIndex < 0
       ? 0
-      : ((state.drawIndex * 4 + state.currentPotIndex) / (36 * 4)) * 100;
+      : ((state.drawIndex * NB_POTS + state.currentPotIndex) /
+          (NB_TEAMS * NB_POTS)) *
+        100;
 
   const matchCount = countMatches(state.constraints);
 
   return {
+    competition,
     state,
     currentTeam,
     activeTablePot,
