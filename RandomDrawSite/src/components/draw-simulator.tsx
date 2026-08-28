@@ -105,10 +105,17 @@ function ResultTable({
   const potTeams = competition.pots[activePot];
   return (
     <div className="overflow-x-auto rounded-lg border border-[hsl(var(--border))]">
-      <table className="w-full text-[11px] border-collapse">
+      <table className="w-full table-fixed text-[11px] border-collapse">
+        <colgroup>
+          <col className="w-[16%]" />
+          {POT_INDICES.flatMap((p) => [
+            <col key={`${p}-h`} className="w-[10.5%]" />,
+            <col key={`${p}-a`} className="w-[10.5%]" />,
+          ])}
+        </colgroup>
         <thead>
           <tr className="bg-[hsl(var(--muted))]/50">
-            <th className="px-3 py-2.5 text-left font-semibold text-[hsl(var(--muted-foreground))] w-28">
+            <th className="px-3 py-2.5 text-left font-semibold text-[hsl(var(--muted-foreground))]">
               Team
             </th>
             {POT_INDICES.map((p) => (
@@ -154,13 +161,13 @@ function ResultTable({
                 }`}
               >
                 <td
-                  className={`px-3 py-1.5 font-semibold truncate max-w-[6.5rem] ${
+                  className={`px-3 py-1.5 font-semibold truncate ${
                     isHighlighted
                       ? "text-[var(--uefa-gold-dark)]"
                       : "text-[hsl(var(--foreground))]"
                   }`}
                 >
-                  {team.name}
+                  <span title={team.name}>{team.name}</span>
                 </td>
                 {POT_INDICES.map((pi) => {
                   const h = getHomeOpponent(competition, team.id, pi, constraints);
@@ -174,7 +181,10 @@ function ResultTable({
                         className={`px-1.5 py-1.5 text-center transition-colors duration-300 ${hFlash ? "bg-emerald-100/80 dark:bg-emerald-900/30" : ""}`}
                       >
                         {h ? (
-                          <span className="inline-block max-w-[4.5rem] truncate text-[hsl(var(--foreground))]">
+                          <span
+                            title={h.name}
+                            className="block truncate text-[hsl(var(--foreground))]"
+                          >
                             {h.name}
                           </span>
                         ) : (
@@ -186,7 +196,10 @@ function ResultTable({
                         className={`px-1.5 py-1.5 text-center transition-colors duration-300 ${aFlash ? "bg-emerald-100/80 dark:bg-emerald-900/30" : ""}`}
                       >
                         {a ? (
-                          <span className="inline-block max-w-[4.5rem] truncate text-[hsl(var(--foreground))]">
+                          <span
+                            title={a.name}
+                            className="block truncate text-[hsl(var(--foreground))]"
+                          >
                             {a.name}
                           </span>
                         ) : (
@@ -247,7 +260,7 @@ export function DrawSimulator({ competition }: { competition: Competition }) {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-[300px_1fr] gap-5 items-start">
+      <div className="grid md:grid-cols-[300px_minmax(0,1fr)] gap-5 items-start">
         {/* Left panel */}
         <div className="space-y-3">
           <div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] overflow-hidden">
@@ -439,7 +452,7 @@ export function DrawSimulator({ competition }: { competition: Competition }) {
         </div>
 
         {/* Right panel */}
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           <div className="flex gap-1.5 flex-wrap items-center">
             {POT_INDICES.map((p) => (
               <button
