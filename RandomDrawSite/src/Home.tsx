@@ -397,7 +397,7 @@ export default function Home() {
             <div className="mx-auto max-w-3xl">
               <div className="mb-6 md:mb-8 rounded-xl bg-[hsl(var(--muted))]/50 p-4 md:p-6">
                 <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
-                  We study feasibility properties of the new format. Among them
+                  We study feasibility properties of the new format. Among then
                   we show that the scheduling issue cannot be ignored when drawing
                   the matchups. Below is draw outcome for the league phase of the 2024/25 UEFA Champions League which satisfies
                   all the pot and association constraints but cannot
