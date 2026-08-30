@@ -369,7 +369,7 @@ export default function Home() {
           <div className="section-card p-4 md:p-8 lg:p-12">
             <SectionHeader
               title="Draw Simulator"
-              description="We modelized UEFA constraints using Integer Linear Programming in Julia. Try our interactive simulator on either 2026/27 league phase."
+              description="We modeled the draw constraints using Integer Linear Programming in Julia. Try our interactive simulator on the 2026/27 Champions League and Europa League league phase."
             />
 
             {/* Draw procedure image — hidden on mobile */}
