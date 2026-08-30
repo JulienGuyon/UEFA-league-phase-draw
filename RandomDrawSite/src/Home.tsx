@@ -399,9 +399,9 @@ export default function Home() {
                 <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
                   We study feasibility properties of the new format. Among them
                   we show that the scheduling issue cannot be ignored when drawing
-                  the matchups. Below is a noncompact draw outcome which satisfies
-                  all the pot and association constraints, i.e the matches cannot
-                  be scheduled within the eight match days.
+                  the matchups. Below is draw outcome for the league phase of the 2024/25 UEFA Champions League which satisfies
+                  all the pot and association constraints but cannot
+                  be scheduled within eight match days.
                 </p>
               </div>
 
