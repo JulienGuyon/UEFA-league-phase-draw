@@ -425,8 +425,8 @@ export default function Home() {
             <div className="mx-auto max-w-3xl">
               <div className="mb-6 md:mb-8 rounded-xl bg-[hsl(var(--muted))]/50 p-4 md:p-6">
                 <p className="text-xs md:text-sm leading-relaxed text-[hsl(var(--muted-foreground))]">
-                  In this approach, an 8-match-day schedule template is created to
-                  meet all pot constraints. The template uses placeholders. Teams
+                  In this alternative approach that we propose, an 8-match-day schedule template is created to
+                  meet all the pot constraints. The template uses placeholders. Teams
                   are then assigned to these placeholders, ensuring that all
                   association constraints are satisfied.
                 </p>
